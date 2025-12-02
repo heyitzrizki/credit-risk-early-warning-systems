@@ -55,5 +55,19 @@ credit-risk-ews/
 ## 🚀 Streamlit App
 
 ### Run locally:
-```bash
 streamlit run app/streamlit_app.py
+
+Features:
+- Upload loan data (CSV)
+- automatic PD, LGD, and EL scoring
+- Downloadable output file
+
+
+## 🔧 Setup
+Install libraries:
+pip install -r requirements.txt
+
+
+## 📬 Contact
+Created by Rizki Anwar Syaifullah
+For portfolio, research, and educational purposes.
