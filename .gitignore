@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Environment / venv
+env/
+venv/
+.venv/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+
+# Do NOT ignore model files (.pkl) 
+# because they are needed for deployment!
