@@ -24,34 +24,6 @@ EL = PD × LGD × EAD
 ### 🔹 4. Macro Stress Testing  
 Uses VIX, Treasury yields, and S&P500 returns to adjust risk levels.
 
----
-
-## 📂 Repository Structure
-credit-risk-ews/
-│
-├── models/
-│   ├── PD_model_tuned_pipeline.pkl
-│   ├── PD_model_calibrated_pipeline.pkl
-│   └── LGD_model_pipeline.pkl
-│
-├── notebook/
-│   └── Credit_Risk_Early_Warning_System.ipynb
-│
-├── app/
-│   ├── streamlit_app.py
-│   └── utils.py
-│
-├── sample_data/
-│   ├── SBA_sample_20rows.csv
-│   └── example_input.csv
-│
-├── requirements.txt
-├── README.md
-└── .gitignore
-
-
----
-
 ## 🚀 Streamlit App
 
 ### Run locally:
