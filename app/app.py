@@ -108,6 +108,7 @@ def load_models(pd_path, lgd_path):
             models['LGD'] = pickle.load(f)
         return models
     except Exception as e:
+        # st.error(f"Debug Info: {e}") # Uncomment for debugging
         return None
 
 def preprocess_input(df):
@@ -122,52 +123,70 @@ def preprocess_input(df):
     for col in currency_cols:
         if col in df_processed.columns and df_processed[col].dtype == 'object':
             df_processed[col] = df_processed[col].astype(str).str.replace('$', '').str.replace(',', '').astype(float)
+        elif col in df_processed.columns:
+            df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
 
     # 2. Handling Missing Values (Simple Imputation)
     df_processed.fillna(0, inplace=True)
 
     # 3. Feature Engineering: NAICS (Industry Sector) -> 2 Digit
+    # Model pipeline Anda tampaknya menggunakan OneHotEncoder untuk kategori ini
     if 'NAICS' in df_processed.columns:
-        # Konversi ke string, ambil 2 digit pertama
         df_processed['NAICS'] = df_processed['NAICS'].astype(str).str[:2]
-        # Mapping mapping spesifik jika diperlukan oleh OneHotEncoder pipeline Anda
-        # (Disini kita asumsikan Pipeline scikit-learn menghandle 'unknown' category)
     
-    # 4. Feature Engineering: Log Loan Amount
-    # Model XGBoost biasanya menyukai distribusi normal
+    # 4. Feature Engineering: Log Loan Amount (Sesuai Pipeline 'num' transformer)
     if 'DisbursementGross' in df_processed.columns:
         df_processed['log_loan_amt'] = np.log1p(df_processed['DisbursementGross'])
     
-    # 5. Mapping Binary Columns (Contoh umum data kredit)
-    # Jika model dilatih dengan 'Y'/'N' -> 1/0, lakukan disini.
-    # Jika pipeline memiliki OneHotEncoder untuk 'Y'/'N', biarkan saja.
-    # Asumsi: Pipeline menghandle OneHotEncoding, jadi kita pastikan tipe datanya string/category yang konsisten.
-    categorical_cols = ['RevLineCr', 'LowDoc', 'UrbanRural', 'NewExist']
-    for col in categorical_cols:
-        if col in df_processed.columns:
-            df_processed[col] = df_processed[col].astype(str)
+    # 5. Feature Engineering: Binary Columns (Sesuai Pipeline 'bin' transformer)
+    # Mapping untuk mencocokkan fitur yang diharapkan oleh model (new_business, low_doc, urban_flag)
+    
+    # NewExist (1=Exist, 2=New) -> new_business (1 if New, 0 if Exist)
+    if 'NewExist' in df_processed.columns:
+        df_processed['new_business'] = df_processed['NewExist'].apply(lambda x: 1 if str(x) == '2' or x == 2 else 0)
+    else:
+        df_processed['new_business'] = 0
+
+    # LowDoc (Y/N) -> low_doc (1 if Y, 0 if N)
+    if 'LowDoc' in df_processed.columns:
+        df_processed['low_doc'] = df_processed['LowDoc'].apply(lambda x: 1 if str(x).upper() == 'Y' else 0)
+    else:
+        df_processed['low_doc'] = 0
+
+    # UrbanRural (1=Urban, 2=Rural, 0=Undefined) -> urban_flag (1 if Urban/Rural known, else 0 - atau sesuai logika training)
+    # Asumsi sederhana: UrbanRural > 0 adalah flagged
+    if 'UrbanRural' in df_processed.columns:
+        df_processed['urban_flag'] = df_processed['UrbanRural'].apply(lambda x: 1 if int(x) > 0 else 0)
+    else:
+        df_processed['urban_flag'] = 0
+
+    # Pastikan kolom 'Term' dan 'NoEmp' ada (bagian dari 'num' transformer)
+    if 'Term' not in df_processed.columns:
+        df_processed['Term'] = 0
+    if 'NoEmp' not in df_processed.columns:
+        df_processed['NoEmp'] = 0
 
     return df_processed
 
-def calculate_expected_loss(pd, lgd, ead):
+def calculate_expected_loss(pd_val, lgd_val, ead_val):
     """EL = PD * LGD * EAD"""
-    return pd * lgd * ead
+    return pd_val * lgd_val * ead_val
 
-def apply_stress_test(pd, vix_index):
+def apply_stress_test(pd_val, vix_index):
     """
     Logika Stress Test Sederhana.
     Baseline VIX biasanya sekitar 15-20.
     Jika VIX naik, PD akan dikalikan dengan multiplier.
     """
     baseline_vix = 20
-    # Sigmoid-like scaling atau Linear scaling
+    # Jika VIX > baseline, risiko meningkat
     if vix_index <= baseline_vix:
         multiplier = 1.0
     else:
         # Setiap kenaikan 10 poin VIX meningkatkan risiko sebesar 15% (contoh heuristik)
         multiplier = 1.0 + ((vix_index - baseline_vix) / 100) * 1.5
     
-    stressed_pd = np.minimum(pd * multiplier, 1.0) # Cap at 100%
+    stressed_pd = np.minimum(pd_val * multiplier, 1.0) # Cap at 100%
     return stressed_pd, multiplier
 
 # ==========================================
@@ -196,8 +215,8 @@ else:
             models['PD'] = pickle.load(uploaded_pd)
             models['LGD'] = pickle.load(uploaded_lgd)
             st.sidebar.success(txt['success_load'])
-        except:
-            st.sidebar.error("Error loading uploaded files.")
+        except Exception as e:
+            st.sidebar.error(f"Error loading uploaded files: {e}")
 
 # ==========================================
 # 5. MAIN INTERFACE
@@ -220,6 +239,7 @@ if not uploaded_file:
             'City': ['Jakarta', 'Surabaya', 'Bandung', 'Jogja', 'Medan'],
             'State': ['JK', 'JI', 'JB', 'YO', 'SU'],
             'NAICS': ['33', '44', '54', '72', '81'], # Manufacturing, Retail, Tech, Food, Services
+            'Term': [36, 60, 12, 120, 24], # Ditambahkan karena wajib untuk model
             'NoEmp': [50, 10, 5, 100, 15],
             'NewExist': ['1', '2', '1', '1', '2'],
             'UrbanRural': ['1', '1', '2', '1', '2'], # 1=Urban, 2=Rural
@@ -233,33 +253,42 @@ if not uploaded_file:
         st.session_state['df'] = df
         st.info("Demo data generated! Proceed to analysis.")
 else:
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
-    st.session_state['df'] = df
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+        st.session_state['df'] = df
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
 
 # JIKA DATA TERSEDIA
 if 'df' in st.session_state and models:
     df = st.session_state['df']
     
-    # 1. Preprocessing
-    with st.spinner('Preprocessing data...'):
-        X_processed = preprocess_input(df)
-        
-        # Validasi kolom wajib untuk model (disesuaikan dengan kebutuhan model XGBoost umum)
-        # Note: Model Pipeline biasanya menghandle seleksi kolom, tapi kita butuh fitur utama
-        
+    # Preview Data
+    with st.expander("Preview Raw Data"):
+        st.dataframe(df.head())
+    
     # 2. Prediction Loop
     if st.button("🚀 Run AI Analysis"):
+        
+        # 1. Preprocessing
+        with st.spinner('Preprocessing data...'):
+            try:
+                X_processed = preprocess_input(df)
+            except Exception as e:
+                st.error(f"Preprocessing Error: {e}")
+                st.stop()
+        
         with st.spinner('Calculating Probability of Default & LGD...'):
             try:
                 # Prediksi PD (Ambil probabilitas kelas positif/gagal bayar)
-                # Biasanya predict_proba outputnya [prob_0, prob_1]
                 if hasattr(models['PD'], 'predict_proba'):
+                    # predict_proba mengembalikan array [prob_kelas_0, prob_kelas_1]
                     pd_values = models['PD'].predict_proba(X_processed)[:, 1]
                 else:
-                    pd_values = models['PD'].predict(X_processed) # Fallback jika regresi
+                    pd_values = models['PD'].predict(X_processed) # Fallback
                 
                 # Prediksi LGD
                 lgd_values = models['LGD'].predict(X_processed)
@@ -270,7 +299,11 @@ if 'df' in st.session_state and models:
                 
                 # Hitung EL
                 # Pastikan kolom numerik bersih untuk perhitungan
-                loan_amt = df['DisbursementGross'].astype(str).str.replace('$', '').str.replace(',', '').astype(float)
+                if df['DisbursementGross'].dtype == 'object':
+                    loan_amt = df['DisbursementGross'].astype(str).str.replace('$', '').str.replace(',', '').astype(float)
+                else:
+                    loan_amt = df['DisbursementGross']
+                    
                 df['EL_Amount'] = calculate_expected_loss(df['PD_Predicted'], df['LGD_Predicted'], loan_amt)
                 
                 # Risk Grading (Indikator Warna)
@@ -283,7 +316,7 @@ if 'df' in st.session_state and models:
                 
             except Exception as e:
                 st.error(f"Prediction Error: {e}")
-                st.warning("Pastikan nama kolom data input sesuai dengan training data model.")
+                st.warning("Tips: Pastikan kolom data input sesuai dengan training data model (Term, NoEmp, NewExist, LowDoc, dll).")
                 st.stop()
 
     # TAHAP 2: DASHBOARD & REPORTING
@@ -310,11 +343,19 @@ if 'df' in st.session_state and models:
             
             # Formatting untuk display
             display_df = results.copy()
-            display_df['PD_Predicted'] = display_df['PD_Predicted'].map('{:.2%}'.format)
-            display_df['LGD_Predicted'] = display_df['LGD_Predicted'].map('{:.2%}'.format)
-            display_df['EL_Amount'] = display_df['EL_Amount'].map('${:,.2f}'.format)
+            # Handle formatting safely
+            try:
+                display_df['PD_Predicted'] = display_df['PD_Predicted'].map('{:.2%}'.format)
+                display_df['LGD_Predicted'] = display_df['LGD_Predicted'].map('{:.2%}'.format)
+                display_df['EL_Amount'] = display_df['EL_Amount'].map('${:,.2f}'.format)
+            except:
+                pass # Fallback to raw numbers if format fails
             
-            st.dataframe(display_df[['Name', 'City', 'NAICS', 'DisbursementGross', 'PD_Predicted', 'LGD_Predicted', 'Risk_Grade', 'EL_Amount']], use_container_width=True)
+            cols_to_show = ['Name', 'City', 'NAICS', 'DisbursementGross', 'PD_Predicted', 'LGD_Predicted', 'Risk_Grade', 'EL_Amount']
+            # Filter kolom yang benar-benar ada
+            final_cols = [c for c in cols_to_show if c in display_df.columns]
+            
+            st.dataframe(display_df[final_cols], use_container_width=True)
             
             # Download Button
             csv = results.to_csv(index=False).encode('utf-8')
@@ -330,87 +371,75 @@ if 'df' in st.session_state and models:
             st.subheader(txt['risk_profile'])
             
             # Select Debtor
-            debtor_list = results['Name'].unique()
-            selected_debtor = st.selectbox("Select Debtor / Pilih Debitur", debtor_list)
-            
-            # Get Debtor Data
-            debtor_data = results[results['Name'] == selected_debtor].iloc[0]
-            
-            # Layout: Profil Kiri, Simulator Kanan
-            c1, c2 = st.columns([1, 2])
-            
-            with c1:
-                st.markdown("#### Current Status (Baseline)")
-                st.info(f"**Industry (NAICS):** {debtor_data['NAICS']}")
-                st.write(f"**Loan Amount:** {debtor_data['DisbursementGross']}")
-                st.write(f"**Original PD:** {debtor_data['PD_Predicted']:.2%}")
-                st.write(f"**Original LGD:** {debtor_data['LGD_Predicted']:.2%}")
+            if 'Name' in results.columns:
+                debtor_list = results['Name'].unique()
+                selected_debtor = st.selectbox("Select Debtor / Pilih Debitur", debtor_list)
                 
-                # Risk Badge
-                risk_color = "green" if debtor_data['Risk_Grade'] == 'Low Risk' else "orange" if debtor_data['Risk_Grade'] == 'Medium Risk' else "red"
-                st.markdown(f"Risk Grade: <span style='color:{risk_color}; font-size:1.2em; font-weight:bold'>{debtor_data['Risk_Grade']}</span>", unsafe_allow_html=True)
+                # Get Debtor Data
+                debtor_data = results[results['Name'] == selected_debtor].iloc[0]
+                
+                # Layout: Profil Kiri, Simulator Kanan
+                c1, c2 = st.columns([1, 2])
+                
+                with c1:
+                    st.markdown("#### Current Status (Baseline)")
+                    st.info(f"**Industry (NAICS):** {debtor_data.get('NAICS', 'N/A')}")
+                    st.write(f"**Loan Amount:** {debtor_data.get('DisbursementGross', 0)}")
+                    st.write(f"**Original PD:** {debtor_data['PD_Predicted']:.2%}")
+                    st.write(f"**Original LGD:** {debtor_data['LGD_Predicted']:.2%}")
+                    
+                    # Risk Badge
+                    risk_grade = debtor_data.get('Risk_Grade', 'Unknown')
+                    risk_color = "green" if risk_grade == 'Low Risk' else "orange" if risk_grade == 'Medium Risk' else "red"
+                    st.markdown(f"Risk Grade: <span style='color:{risk_color}; font-size:1.2em; font-weight:bold'>{risk_grade}</span>", unsafe_allow_html=True)
 
-            with c2:
-                st.markdown(f"#### 📉 {txt['stress_vix']}")
-                st.write(txt['stress_desc'])
-                
-                # Slider VIX
-                vix = st.slider("VIX Index Level", min_value=10, max_value=80, value=20, step=5)
-                
-                # Calculate Stress
-                base_pd = debtor_data['PD_Predicted']
-                stressed_pd, multiplier = apply_stress_test(base_pd, vix)
-                
-                # Recalculate EL
-                loan_val = float(str(debtor_data['DisbursementGross']).replace('$','').replace(',',''))
-                base_el = debtor_data['EL_Amount']
-                stressed_el = calculate_expected_loss(stressed_pd, debtor_data['LGD_Predicted'], loan_val)
-                
-                # Visualisasi Perbandingan (Plotly)
-                fig = go.Figure()
-                fig.add_trace(go.Bar(
-                    x=['Baseline', 'Stressed'],
-                    y=[base_el, stressed_el],
-                    marker_color=['#2ecc71', '#e74c3c'],
-                    text=[f"${base_el:,.0f}", f"${stressed_el:,.0f}"],
-                    textposition='auto'
-                ))
-                
-                fig.update_layout(
-                    title=f"Expected Loss Impact (Multiplier: {multiplier:.2f}x)",
-                    yaxis_title="Expected Loss ($)",
-                    height=300,
-                    margin=dict(l=20, r=20, t=40, b=20)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Insight Box
-                diff = stressed_el - base_el
-                if diff > 0:
-                    st.error(f"⚠️ Potential Loss Increase: +${diff:,.0f} under this scenario.")
-                else:
-                    st.success("Portfolio remains stable under this scenario.")
+                with c2:
+                    st.markdown(f"#### 📉 {txt['stress_vix']}")
+                    st.write(txt['stress_desc'])
+                    
+                    # Slider VIX
+                    vix = st.slider("VIX Index Level", min_value=10, max_value=80, value=20, step=5)
+                    
+                    # Calculate Stress
+                    base_pd = debtor_data['PD_Predicted']
+                    stressed_pd, multiplier = apply_stress_test(base_pd, vix)
+                    
+                    # Recalculate EL
+                    try:
+                        raw_loan = str(debtor_data['DisbursementGross']).replace('$','').replace(',','')
+                        loan_val = float(raw_loan)
+                    except:
+                        loan_val = 0.0
+                        
+                    base_el = debtor_data['EL_Amount']
+                    stressed_el = calculate_expected_loss(stressed_pd, debtor_data['LGD_Predicted'], loan_val)
+                    
+                    # Visualisasi Perbandingan (Plotly)
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=['Baseline', 'Stressed'],
+                        y=[base_el, stressed_el],
+                        marker_color=['#2ecc71', '#e74c3c'],
+                        text=[f"${base_el:,.0f}", f"${stressed_el:,.0f}"],
+                        textposition='auto'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"Expected Loss Impact (Multiplier: {multiplier:.2f}x)",
+                        yaxis_title="Expected Loss ($)",
+                        height=300,
+                        margin=dict(l=20, r=20, t=40, b=20)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Insight Box
+                    diff = stressed_el - base_el
+                    if diff > 0:
+                        st.error(f"⚠️ Potential Loss Increase: +${diff:,.0f} under this scenario.")
+                    else:
+                        st.success("Portfolio remains stable under this scenario.")
+            else:
+                st.warning("Data does not have 'Name' column to select debtor.")
 
 elif not models:
     st.info("👋 Welcome! Please upload your Model PKL files in the sidebar to begin.")
-```
-
-### Cara Menjalankan Aplikasi
-
-1.  **Persiapkan File:**
-    Pastikan file berikut berada dalam satu folder yang sama:
-    * `app.py` (kode di atas)
-    * `PD_model_tuned_pipeline.pkl` (File model PD Anda)
-    * `LGD_model_pipeline.pkl` (File model LGD Anda)
-
-2.  **Install Library:**
-    Buka terminal dan jalankan perintah ini untuk menginstal dependensi:
-    ```bash
-    pip install streamlit pandas numpy scikit-learn xgboost plotly openpyxl
-    ```
-    *(Note: `openpyxl` dibutuhkan untuk membaca file Excel, `xgboost` dibutuhkan jika model Anda berbasis XGBoost)*.
-
-3.  **Jalankan Streamlit:**
-    Ketik perintah ini di terminal:
-    ```bash
-    streamlit run app.py
