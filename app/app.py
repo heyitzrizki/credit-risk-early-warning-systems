@@ -4,343 +4,321 @@ import numpy as np
 import pickle
 import plotly.graph_objects as go
 import plotly.express as px
+import xgboost as xgb
 
-# --- 1. SETUP & PAGE CONFIG ---
+# --- 1. SETUP HALAMAN ---
 st.set_page_config(
-    page_title="Global Credit Risk EWS",
-    page_icon="🌍",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Enterprise Credit Risk EWS",
+    page_icon="🏢",
+    layout="wide"
 )
 
 # Custom CSS
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    .stCard { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .risk-safe { color: #2ecc71; font-weight: bold; }
     .risk-warning { color: #f1c40f; font-weight: bold; }
     .risk-danger { color: #e74c3c; font-weight: bold; }
+    .stDataFrame { border: 1px solid #ddd; border-radius: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. LANGUAGE DICTIONARY ---
-# This dictionary handles all text in the app for 3 languages
+# --- 2. LOGIKA UTILS & BAHASA ---
 lang_dict = {
     "English": {
-        "nav_title": "Navigation",
-        "menu_home": "🏠 Credit Simulator",
-        "menu_stress": "📉 Stress Test Analysis",
-        "menu_info": "📘 Dictionary & Info",
-        "home_title": "🏠 Credit Risk Simulator",
-        "home_desc": "Enter borrower profile below for instant risk analysis.",
-        "input_loan": "1. Loan Profile",
-        "lbl_amount": "💰 Loan Amount (USD)",
-        "lbl_term": "📅 Term (Months)",
-        "input_biz": "2. Business Profile",
-        "lbl_emp": "👥 No. of Employees",
-        "lbl_sector": "🏭 Industry Sector",
-        "lbl_new": "New Business? (< 2 Yrs)",
-        "lbl_urban": "Location",
-        "opt_urban": "Urban",
-        "opt_rural": "Rural",
-        "lbl_doc": "Low Doc Program?",
-        "res_title": "📊 Risk Analysis Result",
-        "res_pd": "Probability of Default",
-        "res_lgd": "Loss Given Default",
-        "res_el": "Expected Loss",
-        "safe": "✅ Low Risk",
-        "warn": "⚠️ Medium Risk",
-        "dang": "⛔ High Risk",
-        "stress_title": "📉 Economic Crisis Simulation",
-        "stress_desc": "Simulate borrower resilience during economic downturns using VIX Index.",
-        "stress_vix": "VIX Index Level",
-        "eco_norm": "Stable Economy",
-        "eco_vol": "Volatile Market",
-        "eco_cris": "Severe Crisis",
-        "chart_title": "Impact of Crisis on Risk",
-        "info_title": "📘 Model Dictionary",
-        "info_naics": "What is NAICS Code?",
-        "info_naics_desc": "Standard code used to classify business establishments.",
-        "gauge_title": "Credit Score Gauge"
-    },
-    "한국어": {
-        "nav_title": "탐색 (Navigation)",
-        "menu_home": "🏠 신용 시뮬레이터",
-        "menu_stress": "📉 스트레스 테스트",
-        "menu_info": "📘 용어 사전",
-        "home_title": "🏠 신용 리스크 시뮬레이터",
-        "home_desc": "대출자의 프로필을 입력하여 리스크를 즉시 분석하십시오.",
-        "input_loan": "1. 대출 프로필",
-        "lbl_amount": "💰 대출 금액 (USD)",
-        "lbl_term": "📅 기간 (개월)",
-        "input_biz": "2. 사업 프로필",
-        "lbl_emp": "👥 직원 수",
-        "lbl_sector": "🏭 산업 분야",
-        "lbl_new": "신규 사업입니까? (< 2년)",
-        "lbl_urban": "위치",
-        "opt_urban": "도시 (Urban)",
-        "opt_rural": "시골 (Rural)",
-        "lbl_doc": "서류 미비 (Low Doc)?",
-        "res_title": "📊 리스크 분석 결과",
-        "res_pd": "부도 확률 (PD)",
-        "res_lgd": "부도 시 손실률 (LGD)",
-        "res_el": "예상 손실액 (EL)",
-        "safe": "✅ 저위험",
-        "warn": "⚠️ 중위험",
-        "dang": "⛔ 고위험",
-        "stress_title": "📉 경제 위기 시뮬레이션",
-        "stress_desc": "VIX 지수를 사용하여 경제 침체기 동안의 대출자 회복력을 시뮬레이션합니다.",
-        "stress_vix": "VIX 지수 수준",
-        "eco_norm": "경제 안정",
-        "eco_vol": "시장 변동성",
-        "eco_cris": "심각한 위기",
-        "chart_title": "위기가 리스크에 미치는 영향",
-        "info_title": "📘 모델 용어 사전",
-        "info_naics": "NAICS 코드란 무엇인가요?",
-        "info_naics_desc": "사업장을 분류하는 데 사용되는 표준 코드입니다.",
-        "gauge_title": "신용 점수 게이지"
+        "title": "🏢 Enterprise Credit Risk System",
+        "upload_header": "📂 1. Upload Dataset",
+        "upload_desc": "Upload your borrower data (CSV). The model will predict risk for ALL rows.",
+        "upload_label": "Choose CSV File",
+        "col_missing": "⚠️ Missing columns in CSV:",
+        "sim_header": "🔍 2. Borrower Inspector & Stress Test",
+        "select_borrower": "Select Borrower ID / Row:",
+        "current_vix": "Current Market VIX:",
+        "stress_analysis": "Stress Test Analysis",
+        "stress_insight": "Simulating crisis impact on THIS specific company.",
+        "metric_pd": "Probability of Default",
+        "metric_el": "Expected Loss",
+        "tab_data": "📋 Full Data & Predictions",
+        "tab_sim": "🔬 Individual Simulator",
+        "download_pred": "Download Predictions"
     },
     "Bahasa Indonesia": {
-        "nav_title": "Navigasi",
-        "menu_home": "🏠 Simulator Kredit",
-        "menu_stress": "📉 Analisa Stress Test",
-        "menu_info": "📘 Kamus & Info",
-        "home_title": "🏠 Simulator Risiko Kredit",
-        "home_desc": "Masukkan profil debitur di bawah ini untuk analisa risiko instan.",
-        "input_loan": "1. Profil Pinjaman",
-        "lbl_amount": "💰 Jumlah Pinjaman (USD)",
-        "lbl_term": "📅 Jangka Waktu (Bulan)",
-        "input_biz": "2. Profil Bisnis",
-        "lbl_emp": "👥 Jumlah Karyawan",
-        "lbl_sector": "🏭 Sektor Industri",
-        "lbl_new": "Bisnis Baru? (< 2 Thn)",
-        "lbl_urban": "Lokasi",
-        "opt_urban": "Perkotaan",
-        "opt_rural": "Pedesaan",
-        "lbl_doc": "Dokumen Kurang Lengkap?",
-        "res_title": "📊 Hasil Analisa Risiko",
-        "res_pd": "Peluang Gagal Bayar (PD)",
-        "res_lgd": "Potensi Kerugian Aset (LGD)",
-        "res_el": "Estimasi Rugi (EL)",
-        "safe": "✅ Risiko Rendah",
-        "warn": "⚠️ Risiko Sedang",
-        "dang": "⛔ Risiko Tinggi",
-        "stress_title": "📉 Simulasi Krisis Ekonomi",
-        "stress_desc": "Simulasi ketahanan debitur saat krisis menggunakan VIX Index.",
-        "stress_vix": "Level VIX Index",
-        "eco_norm": "Ekonomi Stabil",
-        "eco_vol": "Pasar Gejolak",
-        "eco_cris": "Krisis Berat",
-        "chart_title": "Dampak Krisis terhadap Risiko",
-        "info_title": "📘 Kamus Model",
-        "info_naics": "Apa itu Kode NAICS?",
-        "info_naics_desc": "Kode standar untuk klasifikasi jenis usaha.",
-        "gauge_title": "Meteran Skor Kredit"
+        "title": "🏢 Enterprise Credit Risk System",
+        "upload_header": "📂 1. Upload Dataset",
+        "upload_desc": "Upload data peminjam (CSV). Model akan memprediksi risiko untuk SEMUA baris.",
+        "upload_label": "Pilih File CSV",
+        "col_missing": "⚠️ Kolom hilang di CSV:",
+        "sim_header": "🔍 2. Inspeksi Debitur & Stress Test",
+        "select_borrower": "Pilih ID Peminjam / Baris:",
+        "current_vix": "Kondisi Pasar (VIX Index):",
+        "stress_analysis": "Analisa Stress Test",
+        "stress_insight": "Mensimulasikan dampak krisis pada perusahaan INI.",
+        "metric_pd": "Peluang Gagal Bayar (PD)",
+        "metric_el": "Estimasi Kerugian (EL)",
+        "tab_data": "📋 Data Lengkap & Hasil",
+        "tab_sim": "🔬 Simulator Individu",
+        "download_pred": "Download Hasil Prediksi"
     }
 }
 
-# Mapping NAICS (Universal Code -> Display Name handled dynamically)
-# Key: Code used in model, Value: English base name
-naics_base = {
-    "11": "Agriculture, Forestry, Fishing",
-    "21": "Mining, Oil & Gas",
-    "22": "Utilities",
-    "23": "Construction",
-    "31": "Manufacturing",
-    "42": "Wholesale Trade",
-    "44": "Retail Trade",
-    "48": "Transportation & Warehousing",
-    "51": "Information",
-    "52": "Finance & Insurance",
-    "53": "Real Estate",
-    "54": "Professional Services",
-    "55": "Management of Companies",
-    "56": "Admin & Support Services",
-    "61": "Educational Services",
-    "62": "Health Care",
-    "71": "Arts & Entertainment",
-    "72": "Accommodation & Food",
-    "81": "Other Services",
-    "92": "Public Administration"
-}
-
-# --- 3. HELPER FUNCTIONS ---
-def get_naics_label(code, lang):
-    # Simple translation wrapper for Sector Names
-    base_name = naics_base[code]
-    if lang == "한국어":
-        # Simplified Korean Mapping examples
-        korean_map = {
-            "Construction": "건설업 (Construction)",
-            "Manufacturing": "제조업 (Manufacturing)",
-            "Retail Trade": "소매업 (Retail)",
-            "Agriculture, Forestry, Fishing": "농업/임업 (Agriculture)",
-             # Add others as needed, defaulting to English if not found
-        }
-        return korean_map.get(base_name, base_name)
-    elif lang == "Bahasa Indonesia":
-        indo_map = {
-            "Construction": "Konstruksi",
-            "Manufacturing": "Manufaktur",
-            "Retail Trade": "Perdagangan Eceran",
-            "Agriculture, Forestry, Fishing": "Pertanian",
-            "Transportation & Warehousing": "Transportasi & Gudang",
-            "Health Care": "Kesehatan"
-        }
-        return indo_map.get(base_name, base_name)
-    return base_name
+# --- 3. FUNGSI LOAD & PREPROCESS ---
 
 @st.cache_resource
 def load_models():
     models = {}
     try:
-        with open('PD_model_calibrated_pipeline (1).pkl', 'rb') as f:
-            models['pd'] = pickle.load(f)
-        with open('LGD_model_pipeline (1).pkl', 'rb') as f:
-            models['lgd'] = pickle.load(f)
+        # Load dengan penanganan nama file yang fleksibel
+        files = {
+            'pd': ['PD_model_calibrated_pipeline (1).pkl', 'PD_model_calibrated_pipeline.pkl'],
+            'lgd': ['LGD_model_pipeline (1).pkl', 'LGD_model_pipeline.pkl']
+        }
+        
+        for key, possible_names in files.items():
+            for fname in possible_names:
+                try:
+                    with open(fname, 'rb') as f:
+                        models[key] = pickle.load(f)
+                    break
+                except FileNotFoundError:
+                    continue
+            if key not in models:
+                return None # Jika salah satu model gagal load
+                
         return models
-    except:
+    except Exception as e:
+        st.error(f"Error Loading Models: {e}")
         return None
 
-models = load_models()
-
-# --- 4. SIDEBAR & LANGUAGE SELECTOR ---
-st.sidebar.title("🌐 Language / 언어")
-selected_lang = st.sidebar.selectbox("Select Language", ["English", "한국어", "Bahasa Indonesia"])
-t = lang_dict[selected_lang] # Shortcut to current language dict
-
-st.sidebar.markdown("---")
-st.sidebar.title(t["nav_title"])
-menu = st.sidebar.radio("", [t["menu_home"], t["menu_stress"], t["menu_info"]])
-
-# --- 5. MAIN APPLICATION LOGIC ---
-
-if menu == t["menu_home"]:
-    st.title(t["home_title"])
-    st.markdown(t["home_desc"])
+def preprocess_input(df_raw):
+    """
+    Mengubah Raw Data User (CSV) menjadi format yang siap dimakan Model Pipeline.
+    Sesuai logic di Notebook: Hitung Log Loan, Mapping NAICS, dll.
+    """
+    df = df_raw.copy()
     
-    # Input Container
-    with st.container():
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader(t["input_loan"])
-            loan_amount = st.slider(t["lbl_amount"], 1000, 500000, 50000, 1000)
-            term_months = st.slider(t["lbl_term"], 0, 360, 60, 12)
-            log_loan_amt = np.log(loan_amount + 1)
-            
-        with col2:
-            st.subheader(t["input_biz"])
-            no_emp = st.slider(t["lbl_emp"], 0, 100, 5)
-            
-            # Dynamic Sector Options based on Language
-            sector_options = {get_naics_label(k, selected_lang): k for k in naics_base.keys()}
-            selected_sector_label = st.selectbox(t["lbl_sector"], list(sector_options.keys()))
-            naics_code = sector_options[selected_sector_label]
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                is_new = st.toggle(t["lbl_new"], False)
-                new_business_val = 2 if is_new else 1
-                
-                # Urban/Rural Radio
-                loc_opt = st.radio(t["lbl_urban"], [t["opt_urban"], t["opt_rural"]], horizontal=True)
-                urban_val = 1 if loc_opt == t["opt_urban"] else 2
-                
-            with c2:
-                is_low = st.toggle(t["lbl_doc"], False)
-                low_doc_val = 1 if is_low else 0
-
-    st.markdown("---")
-
-    # Calculation
-    input_df = pd.DataFrame({
-        'Term': [term_months],
-        'NoEmp': [no_emp],
-        'log_loan_amt': [log_loan_amt],
-        'new_business': [new_business_val],
-        'low_doc': [low_doc_val],
-        'urban_flag': [urban_val],
-        'NAICS': [naics_code]
-    })
+    # 1. Pastikan Kolom Wajib Ada (Nama kolom sesuai standar SBA Dataset)
+    # Mapping nama kolom umum ke nama kolom model jika user salah nama
+    col_map = {
+        'Amount': 'DisbursementGross', 'LoanAmount': 'DisbursementGross',
+        'Time': 'Term', 'Duration': 'Term',
+        'Employees': 'NoEmp',
+        'Sector': 'NAICS',
+        'UrbanRural': 'UrbanRural', 'NewExist': 'NewExist', 'LowDoc': 'LowDoc'
+    }
+    df.rename(columns=col_map, inplace=True)
     
-    # Prediction (Demo fallback handled silently)
-    pd_val, lgd_val = 0.10, 0.45
-    if models:
+    required_cols = ['DisbursementGross', 'Term', 'NoEmp', 'NAICS', 'NewExist', 'LowDoc', 'UrbanRural']
+    missing = [c for c in required_cols if c not in df.columns]
+    
+    if missing:
+        return None, f"Kolom wajib tidak ditemukan: {missing}"
+
+    # 2. Feature Engineering (Sesuai Notebook)
+    # Log Loan Amount
+    df['log_loan_amt'] = np.log(df['DisbursementGross'] + 1)
+    
+    # Mapping Model Features
+    # Model mengharapkan kolom: ['Term', 'NoEmp', 'log_loan_amt', 'new_business', 'low_doc', 'urban_flag', 'NAICS']
+    
+    # New Business (Logic: 2 = New, 1 = Existing)
+    # Asumsi input user 1/2. Jika user input string, perlu mapping tambahan.
+    df['new_business'] = df['NewExist'] 
+    
+    # Low Doc (Logic: 'Y'=1, 'N'=0 atau input user sudah 1/0)
+    df['low_doc'] = df['LowDoc'].apply(lambda x: 1 if str(x).upper() in ['Y', '1', 'TRUE'] else 0)
+    
+    # Urban Flag (Logic: 1=Urban, 2=Rural, 0=Undefined) -> Model butuh mapping ini
+    df['urban_flag'] = df['UrbanRural']
+    
+    # NAICS
+    # Pastikan NAICS string agar OneHotEncoder bekerja
+    df['NAICS'] = df['NAICS'].astype(str).str[:2] # Ambil 2 digit pertama saja sesuai notebook
+    
+    # Final DataFrame untuk Prediksi
+    X_pred = df[['Term', 'NoEmp', 'log_loan_amt', 'new_business', 'low_doc', 'urban_flag', 'NAICS']]
+    
+    return df, X_pred
+
+# --- 4. APLIKASI UTAMA ---
+
+def main():
+    # Sidebar
+    st.sidebar.title("⚙️ Settings")
+    lang = st.sidebar.selectbox("Language", ["Bahasa Indonesia", "English"])
+    t = lang_dict[lang]
+    
+    st.title(t["title"])
+    
+    # Load Models
+    models = load_models()
+    if not models:
+        st.error("❌ Model Files (.pkl) Missing! Upload .pkl files to directory.")
+        return
+
+    # --- BAGIAN 1: UPLOAD & BATCH PROCESS ---
+    st.header(t["upload_header"])
+    st.markdown(t["upload_desc"])
+    
+    uploaded_file = st.file_uploader(t["upload_label"], type=["csv", "xlsx"])
+    
+    if uploaded_file is not None:
+        # Baca File
         try:
-            pd_val = models['pd'].predict_proba(input_df)[:, 1][0]
-            lgd_val = np.clip(models['lgd'].predict(input_df)[0], 0, 1)
-        except: pass
-        
-    el_val = pd_val * lgd_val * loan_amount
-    
-    # Display Results
-    st.subheader(t["res_title"])
-    rc1, rc2, rc3 = st.columns(3)
-    
-    with rc1:
-        st.metric(t["res_pd"], f"{pd_val:.2%}")
-        if pd_val < 0.10: st.markdown(f'<p class="risk-safe">{t["safe"]}</p>', unsafe_allow_html=True)
-        elif pd_val < 0.30: st.markdown(f'<p class="risk-warning">{t["warn"]}</p>', unsafe_allow_html=True)
-        else: st.markdown(f'<p class="risk-danger">{t["dang"]}</p>', unsafe_allow_html=True)
-        
-    with rc2:
-        st.metric(t["res_lgd"], f"{lgd_val:.2%}")
-        
-    with rc3:
-        st.metric(t["res_el"], f"${el_val:,.0f}")
-        
-    # Gauge Chart
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = pd_val * 100,
-        title = {'text': t["gauge_title"]},
-        gauge = {'axis': {'range': [None, 100]}, 'bar': {'color': "#2c3e50"},
-                 'steps': [{'range': [0, 10], 'color': "#2ecc71"},
-                           {'range': [10, 30], 'color': "#f1c40f"},
-                           {'range': [30, 100], 'color': "#e74c3c"}]}
-    ))
-    fig.update_layout(height=300, margin=dict(t=50, b=20, l=20, r=20))
-    st.plotly_chart(fig, use_container_width=True)
+            if uploaded_file.name.endswith('.csv'):
+                df_raw = pd.read_csv(uploaded_file)
+            else:
+                df_raw = pd.read_excel(uploaded_file)
+        except:
+            st.error("Error reading file.")
+            return
 
-elif menu == t["menu_stress"]:
-    st.title(t["stress_title"])
-    st.markdown(t["stress_desc"])
-    
-    col_s1, col_s2 = st.columns([1, 2])
-    
-    with col_s1:
-        vix = st.slider(t["stress_vix"], 10.0, 80.0, 15.0)
-        if vix <= 15: st.success(t["eco_norm"])
-        elif vix <= 30: st.warning(t["eco_vol"])
-        else: st.error(t["eco_cris"])
+        # Preprocessing & Validasi
+        df_processed, X_pred_or_error = preprocess_input(df_raw)
         
-    with col_s2:
-        # Dummy Viz for Stress
-        base = 0.12
-        mult = 1.0 + ((vix - 10)/20)
-        stressed = min(base * mult, 1.0)
+        if isinstance(X_pred_or_error, str): # Jika return string artinya error message
+            st.error(X_pred_or_error)
+            # Tampilkan contoh format yang benar
+            st.info("💡 Format CSV yang diharapkan (Kolom): DisbursementGross, Term, NoEmp, NAICS, NewExist, LowDoc, UrbanRural")
+            return
         
-        df_stress = pd.DataFrame({
-            "Scenario": ["Baseline", "Stressed (Current VIX)"],
-            "PD": [base, stressed]
+        X_pred = X_pred_or_error
+        
+        # --- JALANKAN MODEL (BATCH) ---
+        with st.spinner("🤖 Mengjalankan Model ML pada seluruh data..."):
+            # 1. PD Prediction
+            probs = models['pd'].predict_proba(X_pred)[:, 1]
+            df_processed['PD_Predicted'] = probs
+            
+            # 2. LGD Prediction
+            lgd_preds = models['lgd'].predict(X_pred)
+            lgd_preds = np.clip(lgd_preds, 0, 1) # Clip 0-1
+            df_processed['LGD_Predicted'] = lgd_preds
+            
+            # 3. EL Calculation
+            df_processed['Expected_Loss'] = df_processed['PD_Predicted'] * df_processed['LGD_Predicted'] * df_processed['DisbursementGross']
+            
+        st.success(f"✅ Prediksi selesai untuk {len(df_processed)} baris data!")
+
+        # --- BAGIAN 2: DASHBOARD & SIMULATOR ---
+        
+        tab1, tab2 = st.tabs([t["tab_data"], t["tab_sim"]])
+        
+        # TAB 1: DATA TABLE
+        with tab1:
+            st.dataframe(df_processed, use_container_width=True)
+            
+            # Download Button
+            csv = df_processed.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label=t["download_pred"],
+                data=csv,
+                file_name='credit_risk_predictions.csv',
+                mime='text/csv',
+            )
+            
+        # TAB 2: INDIVIDUAL INSPECTOR & STRESS TEST
+        with tab2:
+            st.subheader(t["sim_header"])
+            
+            # Selector Row
+            # User memilih baris berdasarkan index atau nama (jika ada kolom Name)
+            row_options = df_processed.index.tolist()
+            # Buat label yang informatif: "Index 0 - Sektor 23 - $50000"
+            format_func = lambda x: f"Row {x} | Sektor {df_processed.iloc[x]['NAICS']} | ${df_processed.iloc[x]['DisbursementGross']:,.0f}"
+            
+            selected_idx = st.selectbox(t["select_borrower"], row_options, format_func=format_func)
+            
+            # Ambil Data Baris Terpilih
+            row_data = df_processed.iloc[selected_idx]
+            
+            st.markdown("---")
+            
+            # Layout Kolom: Kiri (Data Debitur), Kanan (Stress Test Simulator)
+            col_left, col_right = st.columns([1, 2])
+            
+            with col_left:
+                st.markdown("### 🏢 Profil Debitur")
+                st.info(f"**Sektor Industri:** {row_data['NAICS']}")
+                st.write(f"**Pinjaman:** ${row_data['DisbursementGross']:,.2f}")
+                st.write(f"**Tenor:** {row_data['Term']} bulan")
+                st.write(f"**Karyawan:** {row_data['NoEmp']}")
+                st.write(f"**Lokasi:** {'Urban' if row_data['urban_flag']==1 else 'Rural'}")
+                
+                st.markdown("---")
+                st.markdown("### 📊 Risiko Baseline (Saat Ini)")
+                st.metric(t["metric_pd"], f"{row_data['PD_Predicted']:.2%}")
+                st.metric(t["metric_el"], f"${row_data['Expected_Loss']:,.2f}")
+
+            with col_right:
+                st.markdown(f"### 📉 {t['stress_analysis']}")
+                st.write(t["stress_insight"])
+                
+                # --- STRESS TEST CONTROLLER ---
+                # Slider VIX
+                vix_val = st.slider(t["current_vix"], 10, 80, 15, key="vix_slider")
+                
+                # Logic Stress Test (Sesuai Script User)
+                stress_mult = 1.0
+                status = "Normal"
+                color = "green"
+                
+                if vix_val <= 15:
+                    stress_mult = 1.0
+                elif 15 < vix_val <= 25:
+                    stress_mult = 1.2
+                    status = "Moderate Stress"
+                    color = "orange"
+                elif 25 < vix_val <= 35:
+                    stress_mult = 1.5
+                    status = "High Stress"
+                    color = "darkorange"
+                else:
+                    stress_mult = 2.0
+                    status = "Severe Crisis"
+                    color = "red"
+                
+                # Kalkulasi Dampak pada ROW INI
+                pd_base = row_data['PD_Predicted']
+                pd_stress = min(pd_base * stress_mult, 1.0)
+                
+                el_base = row_data['Expected_Loss']
+                el_stress = pd_stress * row_data['LGD_Predicted'] * row_data['DisbursementGross']
+                delta_el = el_stress - el_base
+                
+                # Tampilkan Hasil Stress
+                st.markdown(f"**Status Ekonomi:** <span style='color:{color}'>{status}</span> (Multiplier: {stress_mult}x)", unsafe_allow_html=True)
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("Stressed PD", f"{pd_stress:.2%}", delta=f"{(pd_stress-pd_base)*100:.2f}% pts", delta_color="inverse")
+                with c2:
+                    st.metric("Stressed EL", f"${el_stress:,.2f}", delta=f"-${delta_el:,.2f}", delta_color="inverse")
+                
+                # Grafik Perbandingan
+                fig = go.Figure(data=[
+                    go.Bar(name='Normal', x=['Expected Loss'], y=[el_base], marker_color='#2ecc71'),
+                    go.Bar(name='Crisis Scenario', x=['Expected Loss'], y=[el_stress], marker_color='#e74c3c')
+                ])
+                fig.update_layout(title_text=f"Impact of {status} on Selected Borrower", barmode='group', height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+    else:
+        # Tampilan Awal (Belum Upload) - Beri User Template
+        st.info("👋 Silakan upload file CSV untuk memulai.")
+        st.markdown("### 📝 Contoh Format Data (CSV)")
+        
+        # Bikin Dummy Data buat Contoh
+        dummy_data = pd.DataFrame({
+            'DisbursementGross': [50000, 120000, 30000],
+            'Term': [60, 84, 36],
+            'NoEmp': [5, 12, 2],
+            'NAICS': ['23', '72', '44'],
+            'NewExist': [1, 2, 1],
+            'LowDoc': ['N', 'Y', 'N'],
+            'UrbanRural': [1, 1, 2]
         })
-        fig_s = px.bar(df_stress, x="Scenario", y="PD", color="Scenario", 
-                       title=t["chart_title"], 
-                       color_discrete_sequence=["#2ecc71", "#e74c3c"])
-        st.plotly_chart(fig_s, use_container_width=True)
+        st.dataframe(dummy_data)
+        st.caption("Pastikan nama kolom di file Anda sesuai atau mirip dengan tabel di atas.")
 
-elif menu == t["menu_info"]:
-    st.title(t["info_title"])
-    with st.expander(t["info_naics"], expanded=True):
-        st.write(t["info_naics_desc"])
-        # Show table of translations
-        data_items = []
-        for code, eng_name in naics_base.items():
-            row = {"Code": code, "English": eng_name}
-            # Add current lang if not English
-            if selected_lang != "English":
-                row[selected_lang] = get_naics_label(code, selected_lang)
-            data_items.append(row)
-        st.dataframe(pd.DataFrame(data_items), use_container_width=True)
+if __name__ == "__main__":
+    main()
