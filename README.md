@@ -41,5 +41,6 @@ pip install -r requirements.txt
 
 
 ## 📬 Contact
-Created by Rizki Anwar Syaifullah
+Created by Rizki Anwar Syaifullah.
+
 For portfolio, research, and educational purposes.
