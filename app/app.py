@@ -57,8 +57,8 @@ lang_dict = {
         "stress_vix": "Skenario Krisis (VIX Index)",
         "stress_desc": "Geser untuk mensimulasikan volatilitas pasar. VIX > 30 menandakan ketidakpastian tinggi.",
         "download_btn": "Unduh Hasil Analisis",
-        "model_missing": "Model tidak ditemukan. Silakan unggah manual di sidebar.",
-        "success_load": "Model berhasil dimuat!",
+        "model_missing": "Model tidak ditemukan otomatis. Silakan unggah manual di bawah ini.",
+        "success_load": "Model berhasil dimuat dari sistem lokal!",
         "risk_profile": "Profil Risiko Debitur",
         "base_vs_stress": "Perbandingan: Normal vs Krisis",
     },
@@ -77,8 +77,8 @@ lang_dict = {
         "stress_vix": "Crisis Scenario (VIX Index)",
         "stress_desc": "Slide to simulate market volatility. VIX > 30 indicates high uncertainty.",
         "download_btn": "Download Analysis Results",
-        "model_missing": "Model not found. Please upload manually in sidebar.",
-        "success_load": "Models loaded successfully!",
+        "model_missing": "Models not found automatically. Please upload manually below.",
+        "success_load": "Models loaded successfully from local system!",
         "risk_profile": "Debtor Risk Profile",
         "base_vs_stress": "Comparison: Baseline vs Stressed",
     }
@@ -95,20 +95,44 @@ with st.sidebar:
 # ==========================================
 
 @st.cache_resource
-def load_models(pd_path, lgd_path):
+def load_models_smart():
     """
-    Mencoba memuat model dari path lokal.
-    Mengembalikan dictionary model atau None jika gagal.
+    Mencoba memuat model secara cerdas dari path lokal.
+    Memprioritaskan model 'calibrated' jika ada.
     """
     models = {}
+    
+    # 1. Cari Model PD (Prioritas: Calibrated > Tuned > Biasa)
+    pd_candidates = [
+        "PD_model_calibrated_pipeline.pkl", 
+        "PD_model_tuned_pipeline.pkl", 
+        "PD_model_pipeline.pkl"
+    ]
+    pd_path = next((f for f in pd_candidates if os.path.exists(f)), None)
+    
+    # 2. Cari Model LGD
+    lgd_candidates = ["LGD_model_pipeline.pkl", "LGD_model.pkl"]
+    lgd_path = next((f for f in lgd_candidates if os.path.exists(f)), None)
+    
     try:
-        with open(pd_path, 'rb') as f:
-            models['PD'] = pickle.load(f)
-        with open(lgd_path, 'rb') as f:
-            models['LGD'] = pickle.load(f)
-        return models
+        if pd_path:
+            with open(pd_path, 'rb') as f:
+                models['PD'] = pickle.load(f)
+                models['PD_Name'] = pd_path # Simpan nama file untuk info
+        
+        if lgd_path:
+            with open(lgd_path, 'rb') as f:
+                models['LGD'] = pickle.load(f)
+                models['LGD_Name'] = lgd_path
+                
+        # Return valid models only if BOTH exist
+        if 'PD' in models and 'LGD' in models:
+            return models
+        else:
+            return None
+            
     except Exception as e:
-        # st.error(f"Debug Info: {e}") # Uncomment for debugging
+        # st.error(f"Debug Info: {e}") 
         return None
 
 def preprocess_input(df):
@@ -195,14 +219,14 @@ def apply_stress_test(pd_val, vix_index):
 st.sidebar.markdown("---")
 st.sidebar.subheader(f"🛠️ {txt['sidebar_model']}")
 
-# Coba load otomatis
-default_pd_path = "PD_model_tuned_pipeline.pkl"
-default_lgd_path = "LGD_model_pipeline.pkl"
-
-models = load_models(default_pd_path, default_lgd_path)
+# Load models using the smart function
+models = load_models_smart()
 
 if models:
     st.sidebar.success(f"✅ {txt['success_load']}")
+    # Tampilkan info file yang diload agar user yakin
+    st.sidebar.caption(f"PD Model: `{models.get('PD_Name')}`")
+    st.sidebar.caption(f"LGD Model: `{models.get('LGD_Name')}`")
 else:
     st.sidebar.warning(txt['model_missing'])
     # Fallback: Manual Upload
@@ -214,7 +238,7 @@ else:
         try:
             models['PD'] = pickle.load(uploaded_pd)
             models['LGD'] = pickle.load(uploaded_lgd)
-            st.sidebar.success(txt['success_load'])
+            st.sidebar.success("Models loaded from upload!")
         except Exception as e:
             st.sidebar.error(f"Error loading uploaded files: {e}")
 
