@@ -236,4 +236,4 @@ def main():
                 el_stress = pd_stress * row_data['LGD_Predicted'] * row_data['DisbursementGross']
                 delta_el = el_stress - el_base
 
-                st.markdown(f"**Status:** <span style='color:{color}'>{status}</span>", unsafe_allow_html=True)** <span style='color:{color}'>
+                st.markdown(f"**Status:** <span style='color:{color}'>{status}</span>", unsafe_allow_html=True)**
