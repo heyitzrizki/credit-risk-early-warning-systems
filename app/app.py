@@ -75,11 +75,11 @@ lang_dict = {
 def load_models():
     models = {}
     try:
-        # UPDATE: Prioritaskan nama file "bersih" sesuai request user
-        # List ini akan mencoba nama pertama, jika gagal baru nama kedua
+        # UPDATE: Menggunakan nama file spesifik yang kamu berikan
+        # Kita prioritaskan 'calibrated' untuk PD karena lebih akurat
         files = {
-            'pd': ['PD_model_calibrated_pipeline.pkl', 'PD_model_calibrated_pipeline (1).pkl'],
-            'lgd': ['LGD_model_pipeline.pkl', 'LGD_model_pipeline (1).pkl']
+            'pd': ['PD_model_calibrated_pipeline.pkl', 'PD_model_tuned_pipeline.pkl'],
+            'lgd': ['LGD_model_pipeline.pkl']
         }
         
         for key, possible_names in files.items():
