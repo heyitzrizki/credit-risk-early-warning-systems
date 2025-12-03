@@ -128,8 +128,7 @@ def load_models_smart():
 
     # LGD MODEL
     lgd_candidates = [
-        "LGD_model_pipeline.pkl",
-        "LGD_model.pkl"
+        "LGD_model_pipeline.pkl"
     ]
 
     lgd_path = None
