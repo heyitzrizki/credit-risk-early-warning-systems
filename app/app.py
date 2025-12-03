@@ -87,19 +87,25 @@ with st.sidebar:
 @st.cache_resource
 def load_models_smart():
     """Load PD and LGD models from local or deployment paths"""
+    import sys
     models = {}
+    
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
     search_dirs = [
         base_dir,
         os.path.join(base_dir, "app"),
         os.path.join(base_dir, "..", "app"),
+        "/mount/src/credit-risk-early-warning-systems/app",
+        "/mount/src/credit-risk-early-warning-systems"
     ]
     
     pd_filename = "PD_model_tuned_pipeline.pkl"
     pd_path = None
     
     for d in search_dirs:
+        if not os.path.exists(d):
+            continue
         full_path = os.path.join(d, pd_filename)
         if os.path.exists(full_path):
             pd_path = full_path
@@ -109,6 +115,8 @@ def load_models_smart():
     lgd_path = None
     
     for d in search_dirs:
+        if not os.path.exists(d):
+            continue
         full_path = os.path.join(d, lgd_filename)
         if os.path.exists(full_path):
             lgd_path = full_path
@@ -117,25 +125,38 @@ def load_models_smart():
     if not pd_path or not lgd_path:
         st.sidebar.error("🔍 Model files not found. Searched in:")
         for d in search_dirs:
-            st.sidebar.caption(f"📁 {d}")
+            if os.path.exists(d):
+                st.sidebar.caption(f"📁 {d}")
+                try:
+                    files = os.listdir(d)
+                    st.sidebar.caption(f"   Files: {', '.join([f for f in files if f.endswith('.pkl')])}")
+                except:
+                    pass
         st.sidebar.caption(f"Looking for: `{pd_filename}` and `{lgd_filename}`")
         st.sidebar.info(f"Current working directory: `{os.getcwd()}`")
+        st.sidebar.info(f"Python version: {sys.version}")
+        return None
     
     try:
         if pd_path:
+            st.sidebar.info(f"Loading PD model from: {pd_path}")
             with open(pd_path, "rb") as f:
-                models['PD'] = pickle.load(f)
+                models['PD'] = pickle.load(f, encoding='latin1')
                 models['PD_Name'] = os.path.basename(pd_path)
         
         if lgd_path:
+            st.sidebar.info(f"Loading LGD model from: {lgd_path}")
             with open(lgd_path, "rb") as f:
-                models['LGD'] = pickle.load(f)
+                models['LGD'] = pickle.load(f, encoding='latin1')
                 models['LGD_Name'] = os.path.basename(lgd_path)
         
         return models if 'PD' in models and 'LGD' in models else None
     
     except Exception as e:
         st.sidebar.error(f"❌ Error loading models: {str(e)}")
+        st.sidebar.error(f"Error type: {type(e).__name__}")
+        import traceback
+        st.sidebar.code(traceback.format_exc())
         return None
 
 def preprocess_input(df):
