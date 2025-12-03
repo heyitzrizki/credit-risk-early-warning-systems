@@ -1,335 +1,297 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-import os
 import joblib
-import json
-import io
+import numpy as np
+import os
 
-# --- 1. Konfigurasi Halaman dan Lokalisasi ---
+# Set page configuration
 st.set_page_config(
-    page_title="Enterprise Credit Risk EWS",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Credit Risk Early Warning System",
+    page_icon="🏦",
+    layout="wide"
 )
 
-LANG_DICT = {
-    "ID": {
-        "title": "Sistem Peringatan Dini Risiko Kredit",
-        "subtitle": "Analisis Probabilitas Gagal Bayar (PD) & Stress Testing Ekonomi Makro",
-        "upload_header": "Unggah Data Portofolio",
-        "upload_label": "Unggah file CSV atau Excel (Data Peminjam)",
-        "sidebar_settings": "Pengaturan",
-        "sidebar_model": "Status Model & File",
-        "tab1": "📋 Laporan Portofolio",
-        "tab2": "⚡ Inspektor & Stress Test",
-        "col_pd": "Probabilitas Default (PD)",
-        "col_lgd": "Loss Given Default (LGD)",
-        "col_el": "Expected Loss (EL)",
-        "stress_vix": "Skenario Krisis (VIX Index)",
-        "stress_desc": "Geser untuk mensimulasikan volatilitas pasar. VIX > 30 menandakan ketidakpastian tinggi.",
-        "download_btn": "Unduh Hasil Analisis",
-        "model_missing": "Model/config tidak ditemukan. Pastikan semua file .pkl dan .json ada.",
-        "success_load": "Model dan Konfigurasi berhasil dimuat!",
-        "risk_profile": "Profil Risiko Debitur",
-        "base_vs_stress": "Perbandingan EL: Normal vs Krisis",
-        "run_analysis": "🚀 Jalankan Analisis AI",
-        "demo_data": "Buat Data Demo (Simulasi)",
-        "portfolio_summary": "Ringkasan Portofolio",
-        "total_el": "Total Expected Loss Portofolio (Baseline)",
-        "avg_pd": "Rata-rata PD Portofolio (Baseline)",
-        "avg_lgd": "Rata-rata LGD Portofolio",
-        "currency": "IDR",
-        "select_debtor": "Pilih Debitur untuk Inspeksi",
-        "risk_classification": "Klasifikasi Risiko PD",
-        "debtor_pd_lgd": "PD & LGD Debitur",
-        "portfolio_stress_test": "Analisis Stress Test Portofolio",
-        "total_el_stressed": "Total Expected Loss (Stressed)",
-        "el_impact": "Dampak Krisis (Kenaikan EL)",
-    },
-    "EN": {
-        "title": "Enterprise Credit Risk EWS",
-        "subtitle": "Probability of Default (PD) Analysis & Macro Stress Testing",
-        "upload_header": "Upload Portfolio Data",
-        "upload_label": "Upload CSV or Excel file (Borrower Data)",
-        "sidebar_settings": "Settings",
-        "sidebar_model": "Model Status & Files",
-        "tab1": "📋 Portfolio Report",
-        "tab2": "⚡ Inspector & Stress Test",
-        "col_pd": "Probability of Default (PD)",
-        "col_lgd": "Loss Given Default (LGD)",
-        "col_el": "Expected Loss (EL)",
-        "stress_vix": "Crisis Scenario (VIX Index)",
-        "stress_desc": "Slide to simulate market volatility. VIX > 30 indicates high uncertainty.",
-        "download_btn": "Download Analysis Results",
-        "model_missing": "Model/config not found. Ensure all .pkl and .json files exist.",
-        "success_load": "Models and Configuration loaded successfully!",
-        "risk_profile": "Debtor Risk Profile",
-        "base_vs_stress": "EL Comparison: Baseline vs Stressed",
-        "run_analysis": "🚀 Run AI Analysis",
-        "demo_data": "Generate Demo Data (Simulation)",
-        "portfolio_summary": "Portfolio Summary",
-        "total_el": "Total Portfolio Expected Loss (Baseline)",
-        "avg_pd": "Average Portfolio PD (Baseline)",
-        "avg_lgd": "Average Portfolio LGD",
-        "currency": "USD",
-        "select_debtor": "Select Debtor for Inspection",
-        "risk_classification": "PD Risk Classification",
-        "debtor_pd_lgd": "Debtor PD & LGD",
-        "portfolio_stress_test": "Portfolio Stress Test Analysis",
-        "total_el_stressed": "Total Expected Loss (Stressed)",
-        "el_impact": "Crisis Impact (EL Increase)",
-    }
-}
-
-# Sidebar
-with st.sidebar:
-    st.header("🌐 Language / Bahasa")
-    lang_opt = st.selectbox("Select Language", ["ID", "EN"])
-    txt = LANG_DICT[lang_opt]
-    st.markdown("---")
-
-# --- 2. Load Artifacts (Model + Config) ---
+# Load artifacts
 @st.cache_resource
-def load_all_artifacts():
-    artifacts = {}
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-    pd_path = os.path.join(BASE_DIR, "pd_model.pkl")
-    lgd_path = os.path.join(BASE_DIR, "lgd_model.pkl")
-    config_path = os.path.join(BASE_DIR, "feature_config.json")
-
+def load_models():
+    """Load all deployment artifacts"""
     try:
-        if not os.path.exists(pd_path):
-            raise FileNotFoundError(f"pd_model.pkl missing at {pd_path}")
-
-        if not os.path.exists(lgd_path):
-            raise FileNotFoundError(f"lgd_model.pkl missing at {lgd_path}")
-
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"feature_config.json missing at {config_path}")
-
-        artifacts["PD"] = joblib.load(pd_path)
-        artifacts["LGD"] = joblib.load(lgd_path)
-
-        with open(config_path, "r") as f:
-            artifacts["CONFIG"] = json.load(f)
-
-        return artifacts
-
+        artifact_dir = "deployment_artifacts"
+        
+        pd_model = joblib.load(os.path.join(artifact_dir, "pd_model_pipeline.pkl"))
+        lgd_model = joblib.load(os.path.join(artifact_dir, "lgd_model_pipeline.pkl"))
+        feature_eng_func = joblib.load(os.path.join(artifact_dir, "feature_engineering_function.pkl"))
+        pd_features = joblib.load(os.path.join(artifact_dir, "pd_features.pkl"))
+        lgd_features = joblib.load(os.path.join(artifact_dir, "lgd_features.pkl"))
+        
+        st.success("✓ Models loaded successfully!")
+        return pd_model, lgd_model, feature_eng_func, pd_features, lgd_features
     except Exception as e:
-        st.error(f"❌ Error loading artifacts: {e}")
-        return None
+        st.error(f"Error loading models: {e}")
+        st.stop()
 
-artifacts = load_all_artifacts()
+# Load models
+pd_model, lgd_model, create_features, pd_features, lgd_features = load_models()
 
-# Sidebar indicators
-st.sidebar.subheader(f"🛠️ {txt['sidebar_model']}")
-if not artifacts:
-    st.sidebar.error(txt["model_missing"])
-else:
-    st.sidebar.success(txt["success_load"])
-st.sidebar.info("Model PD dan LGD dimuat dari `pd_model.pkl` dan `lgd_model.pkl`.")
-st.sidebar.markdown("---")
+# Title and header
+st.title("🏦 Credit Risk Early Warning System")
+st.markdown("### Small Business Loan Default Prediction")
+st.markdown("---")
 
-# --- 3. Preprocessing FIX (Kategori → Integer) ---
-def preprocess_input(df_raw, config):
-    X = df_raw.copy()
+# Create two columns for input
+col1, col2 = st.columns(2)
 
-    # ====== NAICS_2 ======
-    valid_naics = config.get("naics_categories", [])
-    X["NAICS_2"] = X["NAICS"].astype(str).str[:2]
-    X["NAICS_2"] = X["NAICS_2"].apply(lambda x: x if x in valid_naics else "Un")
+with col1:
+    st.subheader("📋 Loan Information")
+    
+    term = st.number_input(
+        "Loan Term (months)",
+        min_value=0,
+        max_value=600,
+        value=120,
+        help="Duration of the loan in months"
+    )
+    
+    loan_amt = st.number_input(
+        "Loan Amount ($)",
+        min_value=0.0,
+        max_value=10000000.0,
+        value=50000.0,
+        step=1000.0,
+        help="Total loan disbursement amount"
+    )
+    
+    naics = st.text_input(
+        "NAICS Code",
+        value="541110",
+        help="North American Industry Classification System code"
+    )
+    
+    approval_fy = st.selectbox(
+        "Approval Fiscal Year",
+        options=['2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020'],
+        index=10,
+        help="Year when the loan was approved"
+    )
 
-    naics_map = {cat: i for i, cat in enumerate(valid_naics + ["Un"])}
-    X["NAICS_2"] = X["NAICS_2"].map(naics_map).astype(int)
+with col2:
+    st.subheader("🏢 Business Information")
+    
+    noemp = st.number_input(
+        "Number of Employees",
+        min_value=0,
+        max_value=10000,
+        value=5,
+        help="Total number of employees in the business"
+    )
+    
+    new_exist = st.selectbox(
+        "Business Type",
+        options=[1, 2],
+        format_func=lambda x: "Existing Business" if x == 1 else "New Business",
+        help="Whether the business is new or existing"
+    )
+    
+    urban_rural = st.selectbox(
+        "Location Type",
+        options=[0, 1, 2],
+        format_func=lambda x: ["Unknown", "Urban", "Rural"][x],
+        index=1,
+        help="Urban or rural classification"
+    )
+    
+    low_doc = st.selectbox(
+        "Low Documentation Program",
+        options=["N", "Y"],
+        format_func=lambda x: "No" if x == "N" else "Yes",
+        help="Whether loan uses low documentation process"
+    )
 
-    # ====== Log loan ======
-    X["DisbursementGross"] = pd.to_numeric(X["DisbursementGross"], errors="coerce").fillna(0)
-    X["log_loan_amt"] = np.log1p(X["DisbursementGross"])
+st.markdown("---")
 
-    # ====== Binary flags ======
-    X["new_business"] = X.get("NewExist", 1).apply(lambda x: 1 if x == 2 else 0).astype(int)
-    X["low_doc"] = X.get("LowDoc", "N").apply(lambda x: 1 if str(x).upper() == "Y" else 0).astype(int)
-    X["urban_flag"] = X.get("UrbanRural", 1).apply(lambda x: 1 if x > 0 else 0).astype(int)
-
-    # ====== ApprovalFY ======
-    fy_cats = config.get("approval_fy_categories", [])
-    if "ApprovalFY" not in X.columns:
-        X["ApprovalFY"] = fy_cats[0]
-
-    fy_map = {fy: i for i, fy in enumerate(fy_cats)}
-    X["ApprovalFY"] = X["ApprovalFY"].map(lambda x: fy_map.get(x, 0)).astype(int)
-
-    # ====== Select final model features ======
-    feature_cols = config.get("all_features", [])
-    X_processed = X[feature_cols]
-
-    return X_processed, X
-
-# --- 4. Demo Data Generator ---
-def generate_demo_data(config):
-    naics_opts = config.get("naics_categories", ["33", "44", "51"])
-    fy_opts = config.get("approval_fy_categories", [2010, 2015, 2020])
-
-    return pd.DataFrame({
-        "Name": ["PT. Cahaya Abadi", "CV. Digital Cepat", "UD. Makmur Jaya", "Koperasi Sejahtera"],
-        "NAICS": [np.random.choice(naics_opts) + str(np.random.randint(10, 99)),
-                  "541511", "311812", "448130"],
-        "ApprovalFY": np.random.choice(fy_opts, 4),
-        "Term": np.random.randint(6, 60, 4),
-        "NoEmp": np.random.randint(5, 50, 4),
-        "NewExist": [1, 2, 1, 1],
-        "UrbanRural": [1, 2, 1, 1],
-        "LowDoc": ["N", "Y", "N", "N"],
-        "DisbursementGross": np.random.randint(100000000, 500000000, 4)
-    })
-
-# --- 5. Stress Test ---
-def apply_vix_stress(pd_baseline, vix_index):
-    multiplier = 1 + (np.maximum(0, vix_index - 20) / 100) * 1.5
-    return np.minimum(pd_baseline * multiplier, 1.0)
-
-# --- 6. UI: Upload Section ---
-st.title(txt["title"])
-st.markdown(f"**{txt['subtitle']}**")
-
-st.header(f"1. {txt['upload_header']}")
-
-uploaded_file = st.file_uploader(txt["upload_label"], type=["csv", "xlsx"])
-
-if uploaded_file:
-    try:
-        if uploaded_file.name.endswith(".csv"):
-            df_raw = pd.read_csv(uploaded_file)
-        else:
-            df_raw = pd.read_excel(uploaded_file)
-        st.session_state["df_raw"] = df_raw
-    except Exception as e:
-        st.error(f"Gagal membaca file: {e}")
-        st.session_state.pop("df_raw", None)
-
-else:
-    if st.button(txt["demo_data"]):
-        if artifacts:
-            st.session_state["df_raw"] = generate_demo_data(artifacts["CONFIG"])
-        else:
-            st.warning("Tidak bisa membuat data demo tanpa konfigurasi.")
-
-# --- 7. Run Analysis ---
-if "df_raw" in st.session_state and artifacts:
-    df_raw = st.session_state["df_raw"]
-    st.subheader("Preview Data Input")
-    st.dataframe(df_raw.head())
-
-    if st.button(txt["run_analysis"]):
+# Prediction button
+if st.button("🎯 Calculate Risk Scores", type="primary", use_container_width=True):
+    
+    with st.spinner("Analyzing loan application..."):
+        
         try:
-            X_ready, df_feats = preprocess_input(df_raw, artifacts["CONFIG"])
-
-            pd_pred = artifacts["PD"].predict_proba(X_ready)[:, 1]
-            lgd_pred = artifacts["LGD"].predict(X_ready)
-            lgd_pred = np.clip(lgd_pred, 0, 1)
-
-            df_results = df_raw.copy()
-            df_results[txt["col_pd"]] = pd_pred
-            df_results[txt["col_lgd"]] = lgd_pred
-            df_results["DisbursementGross"] = df_feats["DisbursementGross"]
-            df_results[txt["col_el"]] = pd_pred * lgd_pred * df_feats["DisbursementGross"]
-
-            st.session_state["results"] = df_results
-            st.success("✅ Analisis selesai!")
-
+            # Create input dataframe
+            input_data = pd.DataFrame([{
+                "Term": term,
+                "NoEmp": noemp,
+                "DisbursementGross": loan_amt,
+                "NewExist": new_exist,
+                "UrbanRural": urban_rural,
+                "LowDoc": low_doc,
+                "ApprovalFY": str(approval_fy),
+                "NAICS": naics
+            }])
+            
+            # Apply feature engineering
+            features = create_features(input_data)
+            
+            # Ensure features match expected columns
+            features_pd = features[pd_features]
+            features_lgd = features[lgd_features]
+            
+            # Make predictions
+            pd_score = pd_model.predict_proba(features_pd)[:, 1][0]
+            lgd_score = lgd_model.predict(features_lgd)[0]
+            
+            # Clip LGD to valid range
+            lgd_score = np.clip(lgd_score, 0, 1)
+            
+            # Calculate expected loss
+            expected_loss = loan_amt * pd_score * lgd_score
+            
+            # Display results in cards
+            st.markdown("## 📊 Risk Assessment Results")
+            
+            # Create three columns for metrics
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            
+            with metric_col1:
+                st.metric(
+                    label="Probability of Default (PD)",
+                    value=f"{pd_score:.2%}",
+                    delta=None,
+                    help="Likelihood that the borrower will default"
+                )
+                
+                # Risk level indicator
+                if pd_score < 0.1:
+                    st.success("🟢 Low Risk")
+                elif pd_score < 0.25:
+                    st.warning("🟡 Medium Risk")
+                else:
+                    st.error("🔴 High Risk")
+            
+            with metric_col2:
+                st.metric(
+                    label="Loss Given Default (LGD)",
+                    value=f"{lgd_score:.2%}",
+                    delta=None,
+                    help="Expected loss percentage if default occurs"
+                )
+                
+                # LGD severity
+                if lgd_score < 0.3:
+                    st.success("🟢 Low Severity")
+                elif lgd_score < 0.6:
+                    st.warning("🟡 Medium Severity")
+                else:
+                    st.error("🔴 High Severity")
+            
+            with metric_col3:
+                st.metric(
+                    label="Expected Loss (EL)",
+                    value=f"${expected_loss:,.2f}",
+                    delta=None,
+                    help="Expected monetary loss (PD × LGD × Loan Amount)"
+                )
+                
+                # EL percentage of loan
+                el_percentage = (expected_loss / loan_amt) * 100
+                st.info(f"📉 {el_percentage:.2f}% of loan amount")
+            
+            # Additional information
+            st.markdown("---")
+            st.markdown("### 📝 Risk Interpretation")
+            
+            interpretation_col1, interpretation_col2 = st.columns(2)
+            
+            with interpretation_col1:
+                st.markdown("**Risk Factors:**")
+                if new_exist == 2:
+                    st.markdown("- ⚠️ New business (higher risk)")
+                else:
+                    st.markdown("- ✓ Existing business (lower risk)")
+                
+                if low_doc == "Y":
+                    st.markdown("- ⚠️ Low documentation (less verification)")
+                else:
+                    st.markdown("- ✓ Standard documentation")
+                
+                if term > 120:
+                    st.markdown("- ⚠️ Long loan term (increased risk)")
+                else:
+                    st.markdown("- ✓ Standard loan term")
+            
+            with interpretation_col2:
+                st.markdown("**Recommendation:**")
+                
+                if pd_score < 0.1:
+                    st.success("✅ **APPROVE** - Low default risk")
+                    st.markdown("This loan application shows strong creditworthiness.")
+                elif pd_score < 0.25:
+                    st.warning("⚠️ **REVIEW** - Moderate risk")
+                    st.markdown("Consider additional collateral or guarantees.")
+                else:
+                    st.error("❌ **DECLINE or REQUEST MITIGATION** - High risk")
+                    st.markdown("Significant risk mitigation required before approval.")
+            
+            # Show input summary
+            with st.expander("📄 View Input Summary"):
+                st.json({
+                    "Loan Information": {
+                        "Loan Amount": f"${loan_amt:,.2f}",
+                        "Term": f"{term} months",
+                        "NAICS Code": naics,
+                        "Approval Year": approval_fy
+                    },
+                    "Business Information": {
+                        "Number of Employees": noemp,
+                        "Business Type": "Existing" if new_exist == 1 else "New",
+                        "Location": ["Unknown", "Urban", "Rural"][urban_rural],
+                        "Low Documentation": "Yes" if low_doc == "Y" else "No"
+                    }
+                })
+        
         except Exception as e:
-            st.error(f"❌ Kesalahan Prediksi Model: {e}")
-            st.warning("Periksa tipe fitur dan kecocokan kolom dengan training model.")
+            st.error(f"❌ Error making prediction: {e}")
+            st.error("Please check your inputs and try again.")
 
-# --- 8. Display Results ---
-if "results" in st.session_state:
-    results = st.session_state["results"]
+# Footer
+st.markdown("---")
+st.markdown("""
+    <div style='text-align: center'>
+        <p>Credit Risk Early Warning System | Powered by XGBoost ML Models</p>
+        <p style='font-size: 12px; color: gray;'>
+            This system uses machine learning to predict loan default probability and loss severity.
+            Results should be used as decision support only.
+        </p>
+    </div>
+""", unsafe_allow_html=True)
 
-    st.header("2. Hasil Analisis Risiko")
-    tab1, tab2 = st.tabs([txt["tab1"], txt["tab2"]])
-
-    # --- TAB 1: Portfolio Summary ---
-    with tab1:
-        st.subheader(txt["portfolio_stress_test"])
-
-        vix = st.slider(txt["stress_vix"], 10, 80, 20, 1)
-        st.markdown(f"*{txt['stress_desc']}*")
-
-        results["PD_Stressed"] = apply_vix_stress(results[txt["col_pd"]], vix)
-        results["EL_Stressed"] = results["PD_Stressed"] * results[txt["col_lgd"]] * results["DisbursementGross"]
-
-        total_el = results[txt["col_el"]].sum()
-        stressed_el = results["EL_Stressed"].sum()
-        avg_pd = results[txt["col_pd"]].mean()
-        avg_lgd = results[txt["col_lgd"]].mean()
-        impact = stressed_el - total_el
-
-        st.subheader(txt["portfolio_summary"])
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric(txt["total_el"], f"{txt['currency']} {total_el:,.0f}")
-        c2.metric(txt["avg_pd"], f"{avg_pd:.2%}")
-        c3.metric(txt["total_el_stressed"], f"{txt['currency']} {stressed_el:,.0f}")
-        c4.metric(txt["el_impact"], f"{txt['currency']} {impact:,.0f}", delta=f"{impact:,.0f}")
-
-        st.markdown("---")
-
-        st.dataframe(
-            results[[
-                "Name", "DisbursementGross",
-                txt["col_pd"], "PD_Stressed",
-                txt["col_lgd"],
-                txt["col_el"], "EL_Stressed"
-            ]].style.format({
-                txt["col_pd"]: "{:.2%}",
-                "PD_Stressed": "{:.2%}",
-                txt["col_lgd"]: "{:.2%}",
-                txt["col_el"]: f"{txt['currency']} {{:,.0f}}",
-                "EL_Stressed": f"{txt['currency']} {{:,.0f}}",
-                "DisbursementGross": f"{txt['currency']} {{:,.0f}}"
-            })
-        )
-
-        st.download_button(
-            txt["download_btn"],
-            results.to_csv(index=False).encode("utf-8"),
-            "credit_risk_results.csv"
-        )
-
-    # --- TAB 2: Debtor Inspector ---
-    with tab2:
-        st.subheader(txt["risk_profile"])
-
-        debtors = results["Name"].unique().tolist()
-        debtor = st.selectbox(txt["select_debtor"], debtors)
-
-        d = results[results["Name"] == debtor].iloc[0]
-        base_pd = d[txt["col_pd"]]
-        base_lgd = d[txt["col_lgd"]]
-        base_el = d[txt["col_el"]]
-        exposure = d["DisbursementGross"]
-
-        st.subheader(txt["stress_vix"])
-        vix2 = st.slider("VIX Debitur", 10, 80, vix, 1)
-        stressed_pd = apply_vix_stress(base_pd, vix2)
-        stressed_el = stressed_pd * base_lgd * exposure
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("PD (Stressed)", f"{stressed_pd:.2%}", delta=f"{(stressed_pd - base_pd):.2%}")
-        c2.metric("LGD", f"{base_lgd:.2%}")
-        c3.metric("EL (Stressed)", f"{txt['currency']} {stressed_el:,.0f}",
-                  delta=f"{(stressed_el - base_el):,.0f}")
-
-        st.subheader(txt["base_vs_stress"])
-
-        df_el = pd.DataFrame({
-            "Scenario": ["Baseline", f"Stressed (VIX {vix2})"],
-            "EL": [base_el, stressed_el]
-        })
-
-        fig = px.bar(df_el, x="Scenario", y="EL", text="EL")
-        st.plotly_chart(fig, use_container_width=True)
+# Sidebar with information
+with st.sidebar:
+    st.image("https://via.placeholder.com/150x50/1f77b4/ffffff?text=EWS", width=150)
+    st.markdown("## About")
+    st.info("""
+        This Early Warning System predicts:
+        
+        - **PD**: Probability of default
+        - **LGD**: Loss given default
+        - **EL**: Expected loss
+        
+        Built on SBA loan historical data.
+    """)
+    
+    st.markdown("## Model Performance")
+    st.metric("PD Model AUC", "0.968")
+    st.metric("LGD Model R²", "0.589")
+    
+    st.markdown("## Help")
+    with st.expander("📖 User Guide"):
+        st.markdown("""
+            **How to use:**
+            1. Enter loan details
+            2. Enter business information
+            3. Click 'Calculate Risk Scores'
+            4. Review the results
+            
+            **Risk Levels:**
+            - 🟢 Low: PD < 10%
+            - 🟡 Medium: PD 10-25%
+            - 🔴 High: PD > 25%
+        """)
