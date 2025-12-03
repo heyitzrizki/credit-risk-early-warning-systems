@@ -7,9 +7,18 @@ import sklearn
 import xgboost
 
 # ======================================================================================
+# 0. DIRECTORIES
+# ======================================================================================
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# ======================================================================================
 # 1. PAGE SETUP
 # ======================================================================================
-st.set_page_config(page_title="Enterprise Credit Risk EWS", page_icon="🛡️", layout="wide")
+st.set_page_config(
+    page_title="Enterprise Credit Risk EWS",
+    page_icon="🛡️",
+    layout="wide"
+)
 
 # ======================================================================================
 # 2. LANGUAGE DICTIONARY
@@ -64,7 +73,7 @@ with st.sidebar:
 txt = LANG[lang]
 
 # ======================================================================================
-# 4. MODEL LOADER (Robust)
+# 4. MODEL LOADER (SMART & ROBUST)
 # ======================================================================================
 MODEL_FILES = {
     "pd": "pd_model_pipeline.pkl",
@@ -72,14 +81,18 @@ MODEL_FILES = {
 }
 
 @st.cache_resource
-def load_pipeline_model(path):
+def load_pipeline_model(filename):
+    """Loads a model safely with full-path handling & error catching."""
+    path = os.path.join(APP_DIR, filename)
+
     if not os.path.exists(path):
-        return None, f"File '{path}' tidak ditemukan."
+        return None, f"❌ File '{filename}' tidak ditemukan di {path}"
+
     try:
         model = joblib.load(path)
         return model, None
     except Exception as e:
-        return None, str(e)
+        return None, f"❌ Gagal load model {filename}: {e}"
 
 pd_model, pd_err = load_pipeline_model(MODEL_FILES["pd"])
 lgd_model, lgd_err = load_pipeline_model(MODEL_FILES["lgd"])
@@ -92,26 +105,26 @@ with st.sidebar:
 
     if pd_model is None or lgd_model is None:
         st.error(txt["model_missing"])
-        if pd_err: st.write(f"PD Model Error: {pd_err}")
-        if lgd_err: st.write(f"LGD Model Error: {lgd_err}")
+        if pd_err: st.write(pd_err)
+        if lgd_err: st.write(lgd_err)
     else:
         st.success(txt["success_load"])
 
-    # Show dependency versions for compatibility
+    # Dependency check
     st.markdown("### 🔍 Dependency Check")
-    st.write(f"scikit-learn: **{sklearn.__version__}**")
-    st.write(f"xgboost: **{xgboost.__version__}**")
+    st.write(f"• scikit-learn runtime: **{sklearn.__version__}**")
+    st.write(f"• xgboost runtime: **{xgboost.__version__}**")
 
     if sklearn.__version__ != "1.6.1":
-        st.warning("⚠️ scikit-learn version mismatch! Trained = 1.6.1")
+        st.warning("⚠️ scikit-learn mismatch! Trained on 1.6.1")
     if xgboost.__version__ != "3.1.2":
-        st.warning("⚠️ xgboost version mismatch! Trained = 3.1.2")
+        st.warning("⚠️ xgboost mismatch! Trained on 3.1.2")
 
 # ======================================================================================
 # 6. DIAGNOSTIC MODE
 # ======================================================================================
 with st.expander(txt["diagnostic"]):
-    st.write("### Model Pipeline Structure")
+    st.write("### Model Pipeline Parameters")
     if pd_model:
         st.json(pd_model.get_params(deep=False))
     if lgd_model:
@@ -120,10 +133,10 @@ with st.expander(txt["diagnostic"]):
     st.write("### Environment Info")
     st.write({
         "Python": os.sys.version,
-        "sklearn": sklearn.__version__,
-        "xgboost": xgboost.__version__,
-        "Working Dir": os.getcwd(),
-        "Files": os.listdir()
+        "sklearn version": sklearn.__version__,
+        "xgboost version": xgboost.__version__,
+        "APP_DIR": APP_DIR,
+        "Files in APP_DIR": os.listdir(APP_DIR)
     })
 
 # ======================================================================================
@@ -150,9 +163,17 @@ st.markdown(f"**{txt['subtitle']}**")
 st.header("1. " + txt["upload_header"])
 
 uploaded = st.file_uploader(txt["upload_label"], type=["csv", "xlsx"])
+
 if uploaded:
-    df_raw = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
-    st.session_state["df"] = df_raw
+    try:
+        df_raw = (
+            pd.read_csv(uploaded)
+            if uploaded.name.endswith(".csv")
+            else pd.read_excel(uploaded)
+        )
+        st.session_state["df"] = df_raw
+    except Exception as e:
+        st.error(f"❌ Error membaca file: {e}")
 else:
     if st.button(txt["demo_data"]):
         st.session_state["df"] = generate_demo()
@@ -177,10 +198,9 @@ if "df" in st.session_state and pd_model is not None:
 
             st.session_state["res"] = df_res
             st.success("🎉 Analisis selesai!")
-
         except Exception as e:
             st.error(f"❌ Error saat prediksi: {e}")
-            st.info("Periksa apakah kolom input cocok dengan training pipeline.")
+            st.info("Periksa apakah kolom input cocok dengan pipeline training.")
 
 # ======================================================================================
 # 10. RESULT VIEW
@@ -192,6 +212,7 @@ if "res" in st.session_state:
     with tab1:
         st.subheader("Stress Testing")
         vix = st.slider(txt["stress_vix"], 10, 80, 20)
+
         stressed_pd = np.minimum(res[txt["col_pd"]] * (1 + (vix - 20) / 100 * 1.5), 1)
         stressed_el = stressed_pd * res[txt["col_lgd"]] * res["DisbursementGross"]
 
@@ -206,6 +227,7 @@ if "res" in st.session_state:
         st.subheader("Debtor Inspector")
         name = st.selectbox("Select Debtor", res["Name"].unique())
         d = res[res["Name"] == name].iloc[0]
+
         colA, colB = st.columns(2)
         colA.metric("PD", f"{d[txt['col_pd']]:.2%}")
         colB.metric("LGD", f"{d[txt['col_lgd']]:.2%}")
