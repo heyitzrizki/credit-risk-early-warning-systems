@@ -2,114 +2,136 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import plotly.express as px
-import plotly.graph_objects as go
 import os
+import sklearn
+import xgboost
 
-# ===================================================================
+# ======================================================================================
 # 1. PAGE SETUP
-# ===================================================================
-st.set_page_config(
-    page_title="Enterprise Credit Risk EWS",
-    page_icon="🛡️",
-    layout="wide"
-)
+# ======================================================================================
+st.set_page_config(page_title="Enterprise Credit Risk EWS", page_icon="🛡️", layout="wide")
 
-# ===================================================================
+# ======================================================================================
 # 2. LANGUAGE DICTIONARY
-# ===================================================================
-LANG_DICT = {
+# ======================================================================================
+LANG = {
     "ID": {
         "title": "Sistem Peringatan Dini Risiko Kredit",
-        "subtitle": "Analisis Probabilitas Gagal Bayar (PD) & Stress Testing Ekonomi Makro",
+        "subtitle": "Analisis PD & LGD • Stress Testing · Pipeline AI",
         "upload_header": "Unggah Data Portofolio",
-        "upload_label": "Unggah file CSV atau Excel (Data Peminjam)",
+        "upload_label": "Unggah CSV atau Excel",
         "sidebar_model": "Status Model",
-        "model_missing": "Model tidak ditemukan. Pastikan file .pkl tersedia.",
-        "success_load": "Model berhasil dimuat!",
+        "model_missing": "❌ Model tidak ditemukan. Pastikan file .pkl tersedia.",
+        "success_load": "✅ Model berhasil dimuat!",
         "run_analysis": "🚀 Jalankan Analisis AI",
-        "demo_data": "Buat Data Demo (Simulasi)",
-        "tab1": "📋 Laporan Portofolio",
-        "tab2": "⚡ Inspektor & Stress Test",
+        "demo_data": "Buat Data Demo",
+        "tab1": "📊 Laporan Portofolio",
+        "tab2": "⚡ Stress Testing & Inspektor",
         "col_pd": "Probabilitas Gagal Bayar (PD)",
         "col_lgd": "Loss Given Default (LGD)",
         "col_el": "Expected Loss (EL)",
         "stress_vix": "Skenario Krisis (VIX Index)",
         "stress_desc": "Geser slider untuk mensimulasikan volatilitas pasar.",
-        "portfolio_summary": "Ringkasan Portofolio",
-        "total_el": "Total Expected Loss (Baseline)",
-        "avg_pd": "Rata-rata PD",
-        "avg_lgd": "Rata-rata LGD",
-        "total_el_stressed": "Total Expected Loss (Stressed)",
-        "el_impact": "Dampak Krisis (EL naik)",
-        "select_debtor": "Pilih Debitur",
-        "debtor_pd_lgd": "PD & LGD Debitur"
+        "diagnostic": "🩺 Mode Diagnostik"
     },
     "EN": {
         "title": "Enterprise Credit Risk EWS",
-        "subtitle": "Probability of Default (PD) & Macro Stress Testing",
+        "subtitle": "PD & LGD Analysis • Stress Testing · AI Pipeline",
         "upload_header": "Upload Portfolio Data",
         "upload_label": "Upload CSV or Excel",
         "sidebar_model": "Model Status",
-        "model_missing": "Model not found. Make sure .pkl files exist.",
-        "success_load": "Models loaded successfully!",
+        "model_missing": "❌ Model not found. Ensure .pkl files exist.",
+        "success_load": "✅ Models loaded successfully!",
         "run_analysis": "🚀 Run AI Analysis",
         "demo_data": "Generate Demo Data",
-        "tab1": "📋 Portfolio Report",
-        "tab2": "⚡ Inspector & Stress Test",
+        "tab1": "📊 Portfolio Report",
+        "tab2": "⚡ Stress Testing & Inspector",
         "col_pd": "Probability of Default (PD)",
         "col_lgd": "Loss Given Default (LGD)",
         "col_el": "Expected Loss (EL)",
         "stress_vix": "Crisis Scenario (VIX Index)",
         "stress_desc": "Slide to simulate market volatility.",
-        "portfolio_summary": "Portfolio Summary",
-        "total_el": "Total Expected Loss (Baseline)",
-        "avg_pd": "Average PD",
-        "avg_lgd": "Average LGD",
-        "total_el_stressed": "Total Expected Loss (Stressed)",
-        "el_impact": "Crisis Impact (EL Increase)",
-        "select_debtor": "Select Debtor",
-        "debtor_pd_lgd": "Debtor PD & LGD"
+        "diagnostic": "🩺 Diagnostic Mode"
     }
 }
 
-# ===================================================================
-# 3. SIDEBAR & LANGUAGE SELECTOR
-# ===================================================================
+# ======================================================================================
+# 3. SIDEBAR LANGUAGE SELECTOR
+# ======================================================================================
 with st.sidebar:
-    st.header("🌐 Language / Bahasa")
-    lang_opt = st.selectbox("Select Language", ["ID", "EN"])
-    txt = LANG_DICT[lang_opt]
-    st.markdown("---")
+    st.header("🌐 Language")
+    lang = st.selectbox("Select Language", ["ID", "EN"])
+txt = LANG[lang]
 
-# ===================================================================
-# 4. LOAD PIPELINE MODELS (FIX PATH)
-# ===================================================================
+# ======================================================================================
+# 4. MODEL LOADER (Robust)
+# ======================================================================================
+MODEL_FILES = {
+    "pd": "pd_model_pipeline.pkl",
+    "lgd": "lgd_model_pipeline.pkl"
+}
+
 @st.cache_resource
-def load_models():
+def load_pipeline_model(path):
+    if not os.path.exists(path):
+        return None, f"File '{path}' tidak ditemukan."
     try:
-        pd_model = joblib.load("app/pd_model_pipeline.pkl")
-        lgd_model = joblib.load("app/lgd_model_pipeline.pkl")
-        return pd_model, lgd_model
+        model = joblib.load(path)
+        return model, None
     except Exception as e:
-        st.error(f"{txt['model_missing']} | Detail: {e}")
-        return None, None
+        return None, str(e)
 
-pd_model, lgd_model = load_models()
+pd_model, pd_err = load_pipeline_model(MODEL_FILES["pd"])
+lgd_model, lgd_err = load_pipeline_model(MODEL_FILES["lgd"])
 
+# ======================================================================================
+# 5. SIDEBAR MODEL STATUS + DEPENDENCY CHECK
+# ======================================================================================
 with st.sidebar:
     st.subheader(txt["sidebar_model"])
+
     if pd_model is None or lgd_model is None:
         st.error(txt["model_missing"])
+        if pd_err: st.write(f"PD Model Error: {pd_err}")
+        if lgd_err: st.write(f"LGD Model Error: {lgd_err}")
     else:
         st.success(txt["success_load"])
 
-# ===================================================================
-# 5. GENERATE DEMO DATA
-# ===================================================================
-def generate_demo_data():
+    # Show dependency versions for compatibility
+    st.markdown("### 🔍 Dependency Check")
+    st.write(f"scikit-learn: **{sklearn.__version__}**")
+    st.write(f"xgboost: **{xgboost.__version__}**")
+
+    if sklearn.__version__ != "1.6.1":
+        st.warning("⚠️ scikit-learn version mismatch! Trained = 1.6.1")
+    if xgboost.__version__ != "3.1.2":
+        st.warning("⚠️ xgboost version mismatch! Trained = 3.1.2")
+
+# ======================================================================================
+# 6. DIAGNOSTIC MODE
+# ======================================================================================
+with st.expander(txt["diagnostic"]):
+    st.write("### Model Pipeline Structure")
+    if pd_model:
+        st.json(pd_model.get_params(deep=False))
+    if lgd_model:
+        st.json(lgd_model.get_params(deep=False))
+
+    st.write("### Environment Info")
+    st.write({
+        "Python": os.sys.version,
+        "sklearn": sklearn.__version__,
+        "xgboost": xgboost.__version__,
+        "Working Dir": os.getcwd(),
+        "Files": os.listdir()
+    })
+
+# ======================================================================================
+# 7. DEMO DATA GENERATOR
+# ======================================================================================
+def generate_demo():
     return pd.DataFrame({
-        "Name": ["Debitur A", "Debitur B", "Debitur C", "Debitur D"],
+        "Name": ["A", "B", "C", "D"],
         "NAICS": ["541512", "331110", "448130", "722511"],
         "ApprovalFY": [2010, 2015, 2018, 2020],
         "Term": [36, 60, 48, 72],
@@ -117,106 +139,73 @@ def generate_demo_data():
         "NewExist": [1, 2, 1, 1],
         "UrbanRural": [1, 2, 1, 1],
         "LowDoc": ["N", "Y", "N", "N"],
-        "DisbursementGross": [150_000_000, 450_000_000, 220_000_000, 300_000_000]
+        "DisbursementGross": [150e6, 450e6, 220e6, 300e6]
     })
 
-# ===================================================================
-# 6. PAGE TITLE
-# ===================================================================
+# ======================================================================================
+# 8. MAIN UI
+# ======================================================================================
 st.title(txt["title"])
 st.markdown(f"**{txt['subtitle']}**")
-
 st.header("1. " + txt["upload_header"])
 
-# ===================================================================
-# 7. FILE UPLOADER
-# ===================================================================
-uploaded_file = st.file_uploader(txt["upload_label"], type=["csv", "xlsx"])
-
-if uploaded_file:
-    df_raw = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file)
-    st.session_state["df_raw"] = df_raw
-
+uploaded = st.file_uploader(txt["upload_label"], type=["csv", "xlsx"])
+if uploaded:
+    df_raw = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
+    st.session_state["df"] = df_raw
 else:
     if st.button(txt["demo_data"]):
-        st.session_state["df_raw"] = generate_demo_data()
+        st.session_state["df"] = generate_demo()
 
-# ===================================================================
-# 8. RUN ANALYSIS
-# ===================================================================
-if "df_raw" in st.session_state and pd_model is not None:
-
-    df_raw = st.session_state["df_raw"]
-    st.subheader("Preview Data Input")
-    st.dataframe(df_raw.head())
+# ======================================================================================
+# 9. RUN ANALYSIS
+# ======================================================================================
+if "df" in st.session_state and pd_model is not None:
+    df = st.session_state["df"]
+    st.subheader("Preview")
+    st.dataframe(df.head())
 
     if st.button(txt["run_analysis"]):
-
         try:
-            # Predict with pipeline
-            pd_pred = pd_model.predict_proba(df_raw)[:, 1]
-            lgd_pred = lgd_model.predict(df_raw)
-            lgd_pred = np.clip(lgd_pred, 0, 1)
+            pd_pred = pd_model.predict_proba(df)[:, 1]
+            lgd_pred = np.clip(lgd_model.predict(df), 0, 1)
 
-            df_results = df_raw.copy()
-            df_results[txt["col_pd"]] = pd_pred
-            df_results[txt["col_lgd"]] = lgd_pred
-            df_results[txt["col_el"]] = (
-                df_results[txt["col_pd"]] * df_results[txt["col_lgd"]] * df_results["DisbursementGross"]
-            )
+            df_res = df.copy()
+            df_res[txt["col_pd"]] = pd_pred
+            df_res[txt["col_lgd"]] = lgd_pred
+            df_res[txt["col_el"]] = pd_pred * lgd_pred * df["DisbursementGross"]
 
-            st.session_state["results"] = df_results
-            st.success("Analisis selesai!")
+            st.session_state["res"] = df_res
+            st.success("🎉 Analisis selesai!")
 
         except Exception as e:
-            st.error(f"Kesalahan Prediksi Model: {e}")
-            st.warning("Pastikan format kolom input sesuai training model.")
+            st.error(f"❌ Error saat prediksi: {e}")
+            st.info("Periksa apakah kolom input cocok dengan training pipeline.")
 
-# ===================================================================
-# 9. DISPLAY RESULTS
-# ===================================================================
-if "results" in st.session_state:
-
-    results = st.session_state["results"]
-
+# ======================================================================================
+# 10. RESULT VIEW
+# ======================================================================================
+if "res" in st.session_state:
+    res = st.session_state["res"]
     tab1, tab2 = st.tabs([txt["tab1"], txt["tab2"]])
 
-    # -------------------------
-    # TAB 1 — Portfolio Summary
-    # -------------------------
     with tab1:
-
-        st.subheader(txt["stress_vix"])
+        st.subheader("Stress Testing")
         vix = st.slider(txt["stress_vix"], 10, 80, 20)
-        st.markdown(f"*{txt['stress_desc']}*")
+        stressed_pd = np.minimum(res[txt["col_pd"]] * (1 + (vix - 20) / 100 * 1.5), 1)
+        stressed_el = stressed_pd * res[txt["col_lgd"]] * res["DisbursementGross"]
 
-        # Stress PD
-        stressed_pd = np.minimum(results[txt["col_pd"]] * (1 + (vix - 20) / 100 * 1.5), 1)
-        stressed_el = stressed_pd * results[txt["col_lgd"]] * results["DisbursementGross"]
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Baseline EL", f"{res[txt['col_el']].sum():,.0f}")
+        col2.metric("Stressed EL", f"{stressed_el.sum():,.0f}")
+        col3.metric("Impact", f"{stressed_el.sum() - res[txt['col_el']].sum():,.0f}")
 
-        total_el = results[txt["col_el"]].sum()
-        total_el_stressed = stressed_el.sum()
+        st.dataframe(res)
 
-        st.subheader(txt["portfolio_summary"])
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric(txt["total_el"], f"{total_el:,.0f}")
-        col2.metric(txt["avg_pd"], f"{results[txt['col_pd']].mean():.2%}")
-        col3.metric(txt["total_el_stressed"], f"{total_el_stressed:,.0f}")
-        col4.metric(txt["el_impact"], f"{(total_el_stressed - total_el):,.0f}")
-
-        st.dataframe(results)
-
-    # -------------------------
-    # TAB 2 — Inspector & Stress Test
-    # -------------------------
     with tab2:
-
-        st.subheader(txt["select_debtor"])
-        name = st.selectbox("Debitur", results["Name"].unique())
-
-        d = results[results["Name"] == name].iloc[0]
-
-        st.write("**PD & LGD**")
+        st.subheader("Debtor Inspector")
+        name = st.selectbox("Select Debtor", res["Name"].unique())
+        d = res[res["Name"] == name].iloc[0]
         colA, colB = st.columns(2)
         colA.metric("PD", f"{d[txt['col_pd']]:.2%}")
         colB.metric("LGD", f"{d[txt['col_lgd']]:.2%}")
