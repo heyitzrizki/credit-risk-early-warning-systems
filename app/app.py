@@ -102,38 +102,63 @@ def load_models_smart():
     """
     models = {}
     
-    # 1. Cari Model PD (Prioritas: Calibrated > Tuned > Biasa)
-    pd_candidates = [
-        "PD_model_calibrated_pipeline.pkl", 
-        "PD_model_tuned_pipeline.pkl", 
-        "PD_model_pipeline.pkl"
+    # Base dir
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # root + folder app/
+    search_dir = [
+        base_dir,
+        os.path.join(base_dir, "app"),
     ]
-    pd_path = next((f for f in pd_candidates if os.path.exists(f)), None)
-    
-    # 2. Cari Model LGD
-    lgd_candidates = ["LGD_model_pipeline.pkl", "LGD_model.pkl"]
-    lgd_path = next((f for f in lgd_candidates if os.path.exists(f)), None)
-    
+
+    # PD Model
+    pd_candidates = [
+        "PD_model_tuned_pipeline.pkl"
+    ]
+
+    pd_path = None
+    for d in search_dirs:
+        for f in pd_candidates:
+            full_path = os.path.join(d, f)
+            if os.path.exists(full_path):
+                pd_path = full_path
+                break
+        if pd_path:
+            break
+
+    # LGD MODEL
+    lgd_candidates = [
+        "LGD_model_pipeline.pkl",
+        "LGD_model.pkl"
+    ]
+
+    lgd_path = None
+    for d in search_dirs:
+        for f in lgd_candidates:
+            full_path = os.path.join(d, f)
+            if os.path.exists(full_path):
+                lgd_path = full_path
+                break
+        if lgd_path:
+            break
+
+    # Load the models if found
     try:
         if pd_path:
-            with open(pd_path, 'rb') as f:
+            with open(pd_path, "rb") as f:
                 models['PD'] = pickle.load(f)
-                models['PD_Name'] = pd_path # Simpan nama file untuk info
-        
+                models['PD_Name'] = pd_path
+
         if lgd_path:
-            with open(lgd_path, 'rb') as f:
+            with open(lgd_path, "rb") as f:
                 models['LGD'] = pickle.load(f)
                 models['LGD_Name'] = lgd_path
-                
-        # Return valid models only if BOTH exist
-        if 'PD' in models and 'LGD' in models:
-            return models
-        else:
-            return None
-            
-    except Exception as e:
-        # st.error(f"Debug Info: {e}") 
+
+        return models if 'PD' in models and 'LGD' in models else None
+
+    except Exception:
         return None
+    
 
 def preprocess_input(df):
     """
