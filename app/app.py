@@ -65,50 +65,35 @@ with st.sidebar:
     lang_opt = st.selectbox("Select Language", ["ID", "EN"])
     txt = lang_dict[lang_opt]
 
-# --- FUNGSI LOAD MODEL (REVISI KHUSUS GITHUB FOLDER) ---
 @st.cache_resource
 def load_models_smart():
-    """
-    Load models relative to the current script file location.
-    Works perfectly for the structure: repo/app/app.py + models
-    """
     models = {}
-    
-    # Mendapatkan lokasi folder tempat app.py berada
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Nama file sesuai screenshot GitHub kamu
-    pd_filename = "PD_model_tuned_pipeline.pkl"
-    lgd_filename = "LGD_model_pipeline.pkl"
-    
-    pd_path = os.path.join(current_dir, pd_filename)
-    lgd_path = os.path.join(current_dir, lgd_filename)
-    
-    # Debugging info di sidebar (Opsional, bisa dihapus kalau sudah fix)
-    # st.sidebar.caption(f"📍 Looking in: {current_dir}")
-    
-    if not os.path.exists(pd_path) or not os.path.exists(lgd_path):
-        st.sidebar.error("❌ Model files missing!")
-        st.sidebar.caption(f"Expected: {pd_path}")
-        return None
+
+    # Always load from the same folder as THIS app.py
+    base_dir = os.path.dirname(__file__)  
+    pd_path = os.path.join(base_dir, "PD_model_tuned_pipeline.pkl")
+    lgd_path = os.path.join(base_dir, "LGD_model_pipeline.pkl")
+
+    st.sidebar.info(f"Looking for models in: {base_dir}")
 
     try:
-        # Load PD Model
-        with open(pd_path, "rb") as f:
-            models['PD'] = pickle.load(f)
-        models['PD_Name'] = pd_filename
-        
-        # Load LGD Model
-        with open(lgd_path, "rb") as f:
-            models['LGD'] = pickle.load(f)
-        models['LGD_Name'] = lgd_filename
-        
-        return models
+        if os.path.exists(pd_path):
+            models['PD'] = joblib.load(pd_path)
+            st.sidebar.success(f"Loaded PD model: {pd_path}")
+
+        if os.path.exists(lgd_path):
+            models['LGD'] = joblib.load(lgd_path)
+            st.sidebar.success(f"Loaded LGD model: {lgd_path}")
+
+        if 'PD' in models and 'LGD' in models:
+            return models
+
+        return None
 
     except Exception as e:
-        st.sidebar.error(f"❌ Error loading pickle: {e}")
-        st.sidebar.warning("Jika error 'Module not found', pastikan environment library sama dengan saat training.")
+        st.sidebar.error(f"Error loading models: {e}")
         return None
+
 
 # --- FUNGSI PREPROCESSING ---
 def preprocess_input(df):
