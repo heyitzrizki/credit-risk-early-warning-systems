@@ -9,7 +9,12 @@ import json
 import io
 
 # --- 1. Konfigurasi Halaman dan Lokalisasi ---
-st.set_page_config(page_title="Enterprise Credit Risk EWS", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Enterprise Credit Risk EWS",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 LANG_DICT = {
     "ID": {
@@ -80,49 +85,36 @@ LANG_DICT = {
     }
 }
 
-# --- Sidebar Setup ---
+# Sidebar
 with st.sidebar:
     st.header("🌐 Language / Bahasa")
     lang_opt = st.selectbox("Select Language", ["ID", "EN"])
     txt = LANG_DICT[lang_opt]
     st.markdown("---")
 
-
-# --- 2. Pemuatan Model & Konfigurasi ---
+# --- 2. Load Artifacts (Model + Config) ---
 @st.cache_resource
 def load_all_artifacts():
-    """Load all model files stored in the SAME folder as app.py"""
-
     artifacts = {}
-
-    # 🔥 Fix: absolute directory of THIS file
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-    # Full paths to model files
     pd_path = os.path.join(BASE_DIR, "pd_model.pkl")
     lgd_path = os.path.join(BASE_DIR, "lgd_model.pkl")
     config_path = os.path.join(BASE_DIR, "feature_config.json")
 
-    # Debug (remove later if needed)
-    st.write("📁 BASE_DIR:", BASE_DIR)
-    st.write("📄 Files in BASE_DIR:", os.listdir(BASE_DIR))
-
     try:
-        # Check existence first
         if not os.path.exists(pd_path):
-            raise FileNotFoundError(f"pd_model.pkl NOT FOUND at: {pd_path}")
+            raise FileNotFoundError(f"pd_model.pkl missing at {pd_path}")
 
         if not os.path.exists(lgd_path):
-            raise FileNotFoundError(f"lgd_model.pkl NOT FOUND at: {lgd_path}")
+            raise FileNotFoundError(f"lgd_model.pkl missing at {lgd_path}")
 
         if not os.path.exists(config_path):
-            raise FileNotFoundError(f"feature_config.json NOT FOUND at: {config_path}")
+            raise FileNotFoundError(f"feature_config.json missing at {config_path}")
 
-        # Load models
         artifacts["PD"] = joblib.load(pd_path)
         artifacts["LGD"] = joblib.load(lgd_path)
 
-        # Load config JSON
         with open(config_path, "r") as f:
             artifacts["CONFIG"] = json.load(f)
 
@@ -132,63 +124,61 @@ def load_all_artifacts():
         st.error(f"❌ Error loading artifacts: {e}")
         return None
 
-
-# Load artifacts
 artifacts = load_all_artifacts()
 
-# Sidebar Status
+# Sidebar indicators
 st.sidebar.subheader(f"🛠️ {txt['sidebar_model']}")
-
 if not artifacts:
     st.sidebar.error(txt["model_missing"])
 else:
     st.sidebar.success(txt["success_load"])
-
 st.sidebar.info("Model PD dan LGD dimuat dari `pd_model.pkl` dan `lgd_model.pkl`.")
 st.sidebar.markdown("---")
 
-
-# --- 3. Preprocessing Input Data ---
+# --- 3. Preprocessing FIX (Kategori → Integer) ---
 def preprocess_input(df_raw, config):
     X = df_raw.copy()
 
-    # NAICS 2-digit
-    if "NAICS" in X.columns:
-        X["NAICS_2"] = X["NAICS"].astype(str).str[:2].replace("", "Un")
-        valid_naics = set(config.get("naics_categories", []))
-        X["NAICS_2"] = X["NAICS_2"].apply(lambda x: x if x in valid_naics else "Un")
-    else:
-        X["NAICS_2"] = "Un"
+    # ====== NAICS_2 ======
+    valid_naics = config.get("naics_categories", [])
+    X["NAICS_2"] = X["NAICS"].astype(str).str[:2]
+    X["NAICS_2"] = X["NAICS_2"].apply(lambda x: x if x in valid_naics else "Un")
 
-    # Log Loan Amount
-    if "DisbursementGross" in X.columns:
-        X["DisbursementGross"] = pd.to_numeric(X["DisbursementGross"], errors="coerce").fillna(0)
-        X["log_loan_amt"] = np.log1p(X["DisbursementGross"])
-    else:
-        X["log_loan_amt"] = 0
+    naics_map = {cat: i for i, cat in enumerate(valid_naics + ["Un"])}
+    X["NAICS_2"] = X["NAICS_2"].map(naics_map).astype(int)
 
-    # Binary / category flags
-    X["new_business"] = X.get("NewExist", 1).apply(lambda x: 1 if x == 2 else 0)
-    X["low_doc"] = X.get("LowDoc", "N").apply(lambda x: 1 if str(x).upper() == "Y" else 0)
-    X["urban_flag"] = X.get("UrbanRural", 1).apply(lambda x: 1 if x > 0 else 0)
+    # ====== Log loan ======
+    X["DisbursementGross"] = pd.to_numeric(X["DisbursementGross"], errors="coerce").fillna(0)
+    X["log_loan_amt"] = np.log1p(X["DisbursementGross"])
 
+    # ====== Binary flags ======
+    X["new_business"] = X.get("NewExist", 1).apply(lambda x: 1 if x == 2 else 0).astype(int)
+    X["low_doc"] = X.get("LowDoc", "N").apply(lambda x: 1 if str(x).upper() == "Y" else 0).astype(int)
+    X["urban_flag"] = X.get("UrbanRural", 1).apply(lambda x: 1 if x > 0 else 0).astype(int)
+
+    # ====== ApprovalFY ======
+    fy_cats = config.get("approval_fy_categories", [])
     if "ApprovalFY" not in X.columns:
-        X["ApprovalFY"] = config.get("approval_fy_categories", [2000])[0]
+        X["ApprovalFY"] = fy_cats[0]
 
+    fy_map = {fy: i for i, fy in enumerate(fy_cats)}
+    X["ApprovalFY"] = X["ApprovalFY"].map(lambda x: fy_map.get(x, 0)).astype(int)
+
+    # ====== Select final model features ======
     feature_cols = config.get("all_features", [])
     X_processed = X[feature_cols]
 
     return X_processed, X
 
-
-# --- Demo Data ---
+# --- 4. Demo Data Generator ---
 def generate_demo_data(config):
     naics_opts = config.get("naics_categories", ["33", "44", "51"])
     fy_opts = config.get("approval_fy_categories", [2010, 2015, 2020])
 
     return pd.DataFrame({
         "Name": ["PT. Cahaya Abadi", "CV. Digital Cepat", "UD. Makmur Jaya", "Koperasi Sejahtera"],
-        "NAICS": [np.random.choice(naics_opts) + str(np.random.randint(10, 99)), "541511", "311812", "448130"],
+        "NAICS": [np.random.choice(naics_opts) + str(np.random.randint(10, 99)),
+                  "541511", "311812", "448130"],
         "ApprovalFY": np.random.choice(fy_opts, 4),
         "Term": np.random.randint(6, 60, 4),
         "NoEmp": np.random.randint(5, 50, 4),
@@ -198,14 +188,12 @@ def generate_demo_data(config):
         "DisbursementGross": np.random.randint(100000000, 500000000, 4)
     })
 
-
-# --- Stress Test PD ---
+# --- 5. Stress Test ---
 def apply_vix_stress(pd_baseline, vix_index):
     multiplier = 1 + (np.maximum(0, vix_index - 20) / 100) * 1.5
     return np.minimum(pd_baseline * multiplier, 1.0)
 
-
-# --- 5. UI Main Page ---
+# --- 6. UI: Upload Section ---
 st.title(txt["title"])
 st.markdown(f"**{txt['subtitle']}**")
 
@@ -229,9 +217,9 @@ else:
         if artifacts:
             st.session_state["df_raw"] = generate_demo_data(artifacts["CONFIG"])
         else:
-            st.warning("Tidak bisa membuat data demo tanpa file konfigurasi.")
+            st.warning("Tidak bisa membuat data demo tanpa konfigurasi.")
 
-# --- 6. Run Analysis ---
+# --- 7. Run Analysis ---
 if "df_raw" in st.session_state and artifacts:
     df_raw = st.session_state["df_raw"]
     st.subheader("Preview Data Input")
@@ -239,10 +227,10 @@ if "df_raw" in st.session_state and artifacts:
 
     if st.button(txt["run_analysis"]):
         try:
-            X_model_ready, df_feats = preprocess_input(df_raw, artifacts["CONFIG"])
+            X_ready, df_feats = preprocess_input(df_raw, artifacts["CONFIG"])
 
-            pd_pred = artifacts["PD"].predict_proba(X_model_ready)[:, 1]
-            lgd_pred = artifacts["LGD"].predict(X_model_ready)
+            pd_pred = artifacts["PD"].predict_proba(X_ready)[:, 1]
+            lgd_pred = artifacts["LGD"].predict(X_ready)
             lgd_pred = np.clip(lgd_pred, 0, 1)
 
             df_results = df_raw.copy()
@@ -256,24 +244,23 @@ if "df_raw" in st.session_state and artifacts:
 
         except Exception as e:
             st.error(f"❌ Kesalahan Prediksi Model: {e}")
-            st.warning("Pastikan fitur input sesuai dengan training model.")
+            st.warning("Periksa tipe fitur dan kecocokan kolom dengan training model.")
 
-# --- 7. Display Results ---
+# --- 8. Display Results ---
 if "results" in st.session_state:
     results = st.session_state["results"]
 
     st.header("2. Hasil Analisis Risiko")
     tab1, tab2 = st.tabs([txt["tab1"], txt["tab2"]])
 
-    # --- TAB 1 ---
+    # --- TAB 1: Portfolio Summary ---
     with tab1:
-
         st.subheader(txt["portfolio_stress_test"])
-        vix_val = st.slider(txt["stress_vix"], 10, 80, 20, 1)
 
+        vix = st.slider(txt["stress_vix"], 10, 80, 20, 1)
         st.markdown(f"*{txt['stress_desc']}*")
 
-        results["PD_Stressed"] = apply_vix_stress(results[txt["col_pd"]], vix_val)
+        results["PD_Stressed"] = apply_vix_stress(results[txt["col_pd"]], vix)
         results["EL_Stressed"] = results["PD_Stressed"] * results[txt["col_lgd"]] * results["DisbursementGross"]
 
         total_el = results[txt["col_el"]].sum()
@@ -283,7 +270,6 @@ if "results" in st.session_state:
         impact = stressed_el - total_el
 
         st.subheader(txt["portfolio_summary"])
-
         c1, c2, c3, c4 = st.columns(4)
         c1.metric(txt["total_el"], f"{txt['currency']} {total_el:,.0f}")
         c2.metric(txt["avg_pd"], f"{avg_pd:.2%}")
@@ -292,30 +278,29 @@ if "results" in st.session_state:
 
         st.markdown("---")
 
-        df_show = results[[
-            "Name", "DisbursementGross",
-            txt["col_pd"], "PD_Stressed",
-            txt["col_lgd"],
-            txt["col_el"], "EL_Stressed"
-        ]]
+        st.dataframe(
+            results[[
+                "Name", "DisbursementGross",
+                txt["col_pd"], "PD_Stressed",
+                txt["col_lgd"],
+                txt["col_el"], "EL_Stressed"
+            ]].style.format({
+                txt["col_pd"]: "{:.2%}",
+                "PD_Stressed": "{:.2%}",
+                txt["col_lgd"]: "{:.2%}",
+                txt["col_el"]: f"{txt['currency']} {{:,.0f}}",
+                "EL_Stressed": f"{txt['currency']} {{:,.0f}}",
+                "DisbursementGross": f"{txt['currency']} {{:,.0f}}"
+            })
+        )
 
-        st.dataframe(df_show.style.format({
-            txt["col_pd"]: "{:.2%}",
-            "PD_Stressed": "{:.2%}",
-            txt["col_lgd"]: "{:.2%}",
-            txt["col_el"]: f"{txt['currency']} {{:,.0f}}",
-            "EL_Stressed": f"{txt['currency']} {{:,.0f}}",
-            "DisbursementGross": f"{txt['currency']} {{:,.0f}}"
-        }))
-
-        # Download
         st.download_button(
             txt["download_btn"],
             results.to_csv(index=False).encode("utf-8"),
             "credit_risk_results.csv"
         )
 
-    # --- TAB 2 ---
+    # --- TAB 2: Debtor Inspector ---
     with tab2:
         st.subheader(txt["risk_profile"])
 
@@ -329,24 +314,22 @@ if "results" in st.session_state:
         exposure = d["DisbursementGross"]
 
         st.subheader(txt["stress_vix"])
-        vix_d = st.slider("VIX Debitur", 10, 80, vix_val, 1)
-        stressed_pd = apply_vix_stress(base_pd, vix_d)
+        vix2 = st.slider("VIX Debitur", 10, 80, vix, 1)
+        stressed_pd = apply_vix_stress(base_pd, vix2)
         stressed_el = stressed_pd * base_lgd * exposure
 
         c1, c2, c3 = st.columns(3)
         c1.metric("PD (Stressed)", f"{stressed_pd:.2%}", delta=f"{(stressed_pd - base_pd):.2%}")
         c2.metric("LGD", f"{base_lgd:.2%}")
-        c3.metric("EL (Stressed)", f"{txt['currency']} {stressed_el:,.0f}", delta=f"{(stressed_el - base_el):,.0f}")
+        c3.metric("EL (Stressed)", f"{txt['currency']} {stressed_el:,.0f}",
+                  delta=f"{(stressed_el - base_el):,.0f}")
 
         st.subheader(txt["base_vs_stress"])
 
-        df_bar = pd.DataFrame({
-            "Scenario": ["Baseline", f"Stressed (VIX {vix_d})"],
+        df_el = pd.DataFrame({
+            "Scenario": ["Baseline", f"Stressed (VIX {vix2})"],
             "EL": [base_el, stressed_el]
         })
 
-        fig = px.bar(df_bar, x="Scenario", y="EL", text="EL")
-        fig.update_traces(texttemplate=f"{txt['currency']} %{{y:,.0f}}")
+        fig = px.bar(df_el, x="Scenario", y="EL", text="EL")
         st.plotly_chart(fig, use_container_width=True)
-
-# End of app
