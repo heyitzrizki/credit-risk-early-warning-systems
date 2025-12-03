@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import plotly.express as px
 import plotly.graph_objects as go
+import os
 
 # ===================================================================
 # 1. PAGE SETUP
@@ -82,13 +83,13 @@ with st.sidebar:
     st.markdown("---")
 
 # ===================================================================
-# 4. LOAD PIPELINE MODELS
+# 4. LOAD PIPELINE MODELS (FIX PATH)
 # ===================================================================
 @st.cache_resource
 def load_models():
     try:
-        pd_model = joblib.load("pd_model_pipeline.pkl")
-        lgd_model = joblib.load("lgd_model_pipeline.pkl")
+        pd_model = joblib.load("app/pd_model_pipeline.pkl")
+        lgd_model = joblib.load("app/lgd_model_pipeline.pkl")
         return pd_model, lgd_model
     except Exception as e:
         st.error(f"{txt['model_missing']} | Detail: {e}")
@@ -98,7 +99,7 @@ pd_model, lgd_model = load_models()
 
 with st.sidebar:
     st.subheader(txt["sidebar_model"])
-    if pd_model is None:
+    if pd_model is None or lgd_model is None:
         st.error(txt["model_missing"])
     else:
         st.success(txt["success_load"])
@@ -152,7 +153,7 @@ if "df_raw" in st.session_state and pd_model is not None:
     if st.button(txt["run_analysis"]):
 
         try:
-            # Pipeline already handles preprocessing
+            # Predict with pipeline
             pd_pred = pd_model.predict_proba(df_raw)[:, 1]
             lgd_pred = lgd_model.predict(df_raw)
             lgd_pred = np.clip(lgd_pred, 0, 1)
@@ -219,4 +220,3 @@ if "results" in st.session_state:
         colA, colB = st.columns(2)
         colA.metric("PD", f"{d[txt['col_pd']]:.2%}")
         colB.metric("LGD", f"{d[txt['col_lgd']]:.2%}")
-
