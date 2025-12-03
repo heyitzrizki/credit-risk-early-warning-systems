@@ -37,13 +37,13 @@ LANG_DICT = {
         "total_el": "Total Expected Loss Portofolio (Baseline)",
         "avg_pd": "Rata-rata PD Portofolio (Baseline)",
         "avg_lgd": "Rata-rata LGD Portofolio",
-        "currency": "IDR", # Asumsi mata uang
+        "currency": "IDR",
         "select_debtor": "Pilih Debitur untuk Inspeksi",
         "risk_classification": "Klasifikasi Risiko PD",
         "debtor_pd_lgd": "PD & LGD Debitur",
-        "portfolio_stress_test": "Analisis Stress Test Portofolio", # Tambahan
-        "total_el_stressed": "Total Expected Loss (Stressed)", # Tambahan
-        "el_impact": "Dampak Krisis (Kenaikan EL)", # Tambahan
+        "portfolio_stress_test": "Analisis Stress Test Portofolio",
+        "total_el_stressed": "Total Expected Loss (Stressed)",
+        "el_impact": "Dampak Krisis (Kenaikan EL)",
     },
     "EN": {
         "title": "Enterprise Credit Risk EWS",
@@ -74,373 +74,279 @@ LANG_DICT = {
         "select_debtor": "Select Debtor for Inspection",
         "risk_classification": "PD Risk Classification",
         "debtor_pd_lgd": "Debtor PD & LGD",
-        "portfolio_stress_test": "Portfolio Stress Test Analysis", # Tambahan
-        "total_el_stressed": "Total Expected Loss (Stressed)", # Tambahan
-        "el_impact": "Crisis Impact (EL Increase)", # Tambahan
+        "portfolio_stress_test": "Portfolio Stress Test Analysis",
+        "total_el_stressed": "Total Expected Loss (Stressed)",
+        "el_impact": "Crisis Impact (EL Increase)",
     }
 }
 
-# Inisialisasi Sidebar
+# --- Sidebar Setup ---
 with st.sidebar:
     st.header("🌐 Language / Bahasa")
     lang_opt = st.selectbox("Select Language", ["ID", "EN"])
     txt = LANG_DICT[lang_opt]
     st.markdown("---")
 
-# --- 2. Pemuatan Model dan Konfigurasi ---
+
+# --- 2. Pemuatan Model & Konfigurasi ---
 @st.cache_resource
 def load_all_artifacts():
-    """Memuat semua model dan konfigurasi yang diperlukan.
-    Model dicari di direktori yang sama dengan app.py."""
+    """Load all model files stored in the SAME folder as app.py"""
+
     artifacts = {}
-    
-    # Path file (gunakan nama file yang diunggah)
-    pd_path = "pd_model.pkl"
-    lgd_path = "lgd_model.pkl"
-    config_path = "feature_config.json"
-    
-    # Periksa apakah file tersedia 
+
+    # 🔥 Fix: absolute directory of THIS file
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+    # Full paths to model files
+    pd_path = os.path.join(BASE_DIR, "pd_model.pkl")
+    lgd_path = os.path.join(BASE_DIR, "lgd_model.pkl")
+    config_path = os.path.join(BASE_DIR, "feature_config.json")
+
+    # Debug (remove later if needed)
+    st.write("📁 BASE_DIR:", BASE_DIR)
+    st.write("📄 Files in BASE_DIR:", os.listdir(BASE_DIR))
+
     try:
-        # PD Model
-        artifacts['PD'] = joblib.load(pd_path)
-        
-        # LGD Model
-        artifacts['LGD'] = joblib.load(lgd_path)
-        
-        # Config
-        with open(config_path, 'r') as f:
-            artifacts['CONFIG'] = json.load(f)
+        # Check existence first
+        if not os.path.exists(pd_path):
+            raise FileNotFoundError(f"pd_model.pkl NOT FOUND at: {pd_path}")
 
-        if 'PD' in artifacts and 'LGD' in artifacts and 'CONFIG' in artifacts:
-            return artifacts
-        return None
+        if not os.path.exists(lgd_path):
+            raise FileNotFoundError(f"lgd_model.pkl NOT FOUND at: {lgd_path}")
+
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"feature_config.json NOT FOUND at: {config_path}")
+
+        # Load models
+        artifacts["PD"] = joblib.load(pd_path)
+        artifacts["LGD"] = joblib.load(lgd_path)
+
+        # Load config JSON
+        with open(config_path, "r") as f:
+            artifacts["CONFIG"] = json.load(f)
+
+        return artifacts
+
     except Exception as e:
-        # Tangani error jika file tidak ditemukan
-        st.error(f"Error saat memuat model: Pastikan semua file berada dalam folder yang sama. Detail: {e}")
+        st.error(f"❌ Error loading artifacts: {e}")
         return None
 
-# Muat model
+
+# Load artifacts
 artifacts = load_all_artifacts()
 
-# Tampilkan status model di sidebar
+# Sidebar Status
 st.sidebar.subheader(f"🛠️ {txt['sidebar_model']}")
+
 if not artifacts:
-    st.sidebar.error(txt['model_missing'])
+    st.sidebar.error(txt["model_missing"])
 else:
-    st.sidebar.success(txt['success_load'])
+    st.sidebar.success(txt["success_load"])
 
 st.sidebar.info("Model PD dan LGD dimuat dari `pd_model.pkl` dan `lgd_model.pkl`.")
 st.sidebar.markdown("---")
 
 
-# --- 3. Fungsi Preprocessing Data ---
+# --- 3. Preprocessing Input Data ---
 def preprocess_input(df_raw, config):
-    """
-    Membuat fitur turunan yang diperlukan oleh model dari data input mentah.
-    Ini harus mencerminkan langkah rekayasa fitur sebelum training model.
-    """
     X = df_raw.copy()
 
-    # 1. Pastikan kolom ada dan bersih
-    if 'NAICS' in X.columns:
-        # NAICS 2-digit: Asumsi bahwa NAICS adalah string, ambil 2 digit pertama
-        X['NAICS_2'] = X['NAICS'].astype(str).str[:2].replace('', 'Un')
-        # Handle NAICS yang tidak ada di kategori training (misal, set ke 'Un')
-        valid_naics = set(config.get('naics_categories', []))
-        X['NAICS_2'] = X['NAICS_2'].apply(lambda x: x if x in valid_naics else 'Un')
+    # NAICS 2-digit
+    if "NAICS" in X.columns:
+        X["NAICS_2"] = X["NAICS"].astype(str).str[:2].replace("", "Un")
+        valid_naics = set(config.get("naics_categories", []))
+        X["NAICS_2"] = X["NAICS_2"].apply(lambda x: x if x in valid_naics else "Un")
     else:
-        # Buat kolom placeholder jika tidak ada di data demo
-        X['NAICS_2'] = 'Un'
+        X["NAICS_2"] = "Un"
 
-    # 2. Fitur Numerik (Log Transform)
-    if 'DisbursementGross' in X.columns:
-        # Gunakan nama kolom yang sudah ada. Jika 'DisbursementGross' adalah string, konversi ke float terlebih dahulu.
-        X['DisbursementGross'] = pd.to_numeric(X['DisbursementGross'], errors='coerce').fillna(0)
-        X['log_loan_amt'] = np.log1p(X['DisbursementGross'])
+    # Log Loan Amount
+    if "DisbursementGross" in X.columns:
+        X["DisbursementGross"] = pd.to_numeric(X["DisbursementGross"], errors="coerce").fillna(0)
+        X["log_loan_amt"] = np.log1p(X["DisbursementGross"])
     else:
-        X['log_loan_amt'] = 0 # Placeholder
+        X["log_loan_amt"] = 0
 
-    # 3. Fitur Biner/Kategori
-    X['new_business'] = X.get('NewExist', 1).apply(lambda x: 1 if x == 2 else 0)
-    X['low_doc'] = X.get('LowDoc', 'N').apply(lambda x: 1 if str(x).upper() == 'Y' else 0)
-    # Asumsi UrbanRural = 1 atau 2 (Urban/Rural), 0 (Tidak diketahui)
-    X['urban_flag'] = X.get('UrbanRural', 1).apply(lambda x: 1 if x > 0 else 0)
-    
-    # 4. Fitur Tambahan yang MUNGKIN dibutuhkan model (meskipun tidak dipakai di demo data)
-    # Jika model Anda membutuhkan 'ApprovalFY' (contoh dari config JSON), ini perlu ditambahkan.
-    if 'ApprovalFY' not in X.columns:
-        # Tambahkan nilai default yang valid sesuai kategori training (misalnya, nilai pertama)
-        X['ApprovalFY'] = config.get('approval_fy_categories', [2000])[0]
+    # Binary / category flags
+    X["new_business"] = X.get("NewExist", 1).apply(lambda x: 1 if x == 2 else 0)
+    X["low_doc"] = X.get("LowDoc", "N").apply(lambda x: 1 if str(x).upper() == "Y" else 0)
+    X["urban_flag"] = X.get("UrbanRural", 1).apply(lambda x: 1 if x > 0 else 0)
 
-    # Pilih hanya kolom yang dibutuhkan oleh Pipeline
-    feature_cols = config.get('all_features', [])
+    if "ApprovalFY" not in X.columns:
+        X["ApprovalFY"] = config.get("approval_fy_categories", [2000])[0]
+
+    feature_cols = config.get("all_features", [])
     X_processed = X[feature_cols]
 
     return X_processed, X
 
-# --- 4. Fungsi Pembuatan Data Demo ---
+
+# --- Demo Data ---
 def generate_demo_data(config):
-    """Membuat DataFrame demo yang lebih sesuai dengan fitur model."""
-    naics_opts = config.get('naics_categories', ['33', '44', '51'])
-    fy_opts = config.get('approval_fy_categories', [2010, 2015, 2020])
-    
+    naics_opts = config.get("naics_categories", ["33", "44", "51"])
+    fy_opts = config.get("approval_fy_categories", [2010, 2015, 2020])
+
     return pd.DataFrame({
-        'Name': ['PT. Cahaya Abadi', 'CV. Digital Cepat', 'UD. Makmur Jaya', 'Koperasi Sejahtera'],
-        'NAICS': [np.random.choice(naics_opts) + str(np.random.randint(10, 99)), '541511', '311812', '448130'],
-        'ApprovalFY': np.random.choice(fy_opts, 4),
-        'Term': np.random.randint(6, 60, 4),
-        'NoEmp': np.random.randint(5, 50, 4),
-        'NewExist': [1, 2, 1, 1], # 1: Existing, 2: New Business
-        'UrbanRural': [1, 2, 1, 1], # 1: Urban, 2: Rural
-        'LowDoc': ['N', 'Y', 'N', 'N'],
-        'DisbursementGross': np.random.randint(100000000, 500000000, 4)
+        "Name": ["PT. Cahaya Abadi", "CV. Digital Cepat", "UD. Makmur Jaya", "Koperasi Sejahtera"],
+        "NAICS": [np.random.choice(naics_opts) + str(np.random.randint(10, 99)), "541511", "311812", "448130"],
+        "ApprovalFY": np.random.choice(fy_opts, 4),
+        "Term": np.random.randint(6, 60, 4),
+        "NoEmp": np.random.randint(5, 50, 4),
+        "NewExist": [1, 2, 1, 1],
+        "UrbanRural": [1, 2, 1, 1],
+        "LowDoc": ["N", "Y", "N", "N"],
+        "DisbursementGross": np.random.randint(100000000, 500000000, 4)
     })
 
-# --- FUNGSI BARU: Stress Testing PD ---
+
+# --- Stress Test PD ---
 def apply_vix_stress(pd_baseline, vix_index):
-    """
-    Menghitung PD yang distres berdasarkan VIX Index.
-    """
-    # 20 adalah VIX normal/baseline
-    # 1.5 adalah sensitivitas PD terhadap VIX (beta)
     multiplier = 1 + (np.maximum(0, vix_index - 20) / 100) * 1.5
-    
-    # Aplikasikan multiplier ke PD baseline, batasi maksimum 1.0 (100%)
-    pd_stressed = np.minimum(pd_baseline * multiplier, 1.0)
-    return pd_stressed
+    return np.minimum(pd_baseline * multiplier, 1.0)
 
-# --- 5. Tampilan Utama Aplikasi ---
 
-st.title(txt['title'])
+# --- 5. UI Main Page ---
+st.title(txt["title"])
 st.markdown(f"**{txt['subtitle']}**")
 
 st.header(f"1. {txt['upload_header']}")
 
-# Input Data
-uploaded_file = st.file_uploader(txt['upload_label'], type=["csv", "xlsx"])
+uploaded_file = st.file_uploader(txt["upload_label"], type=["csv", "xlsx"])
+
 if uploaded_file:
     try:
-        if uploaded_file.name.endswith('.csv'):
+        if uploaded_file.name.endswith(".csv"):
             df_raw = pd.read_csv(uploaded_file)
         else:
             df_raw = pd.read_excel(uploaded_file)
-        st.session_state['df_raw'] = df_raw
+        st.session_state["df_raw"] = df_raw
     except Exception as e:
         st.error(f"Gagal membaca file: {e}")
-        del st.session_state['df_raw']
+        st.session_state.pop("df_raw", None)
+
 else:
-    # Tombol Generate Demo Data
-    if st.button(txt['demo_data']):
+    if st.button(txt["demo_data"]):
         if artifacts:
-            st.session_state['df_raw'] = generate_demo_data(artifacts['CONFIG'])
+            st.session_state["df_raw"] = generate_demo_data(artifacts["CONFIG"])
         else:
             st.warning("Tidak bisa membuat data demo tanpa file konfigurasi.")
 
-# --- 6. Jalankan Analisis & Prediksi ---
-if 'df_raw' in st.session_state and artifacts:
-    df_raw = st.session_state['df_raw']
+# --- 6. Run Analysis ---
+if "df_raw" in st.session_state and artifacts:
+    df_raw = st.session_state["df_raw"]
     st.subheader("Preview Data Input")
     st.dataframe(df_raw.head())
 
-    if st.button(txt['run_analysis']):
+    if st.button(txt["run_analysis"]):
         try:
-            # 1. Preprocessing/Feature Engineering
-            X_model_ready, df_with_features = preprocess_input(df_raw, artifacts['CONFIG'])
+            X_model_ready, df_feats = preprocess_input(df_raw, artifacts["CONFIG"])
 
-            # 2. Prediksi
-            # PD: Probabilitas gagal bayar (kelas 1)
-            pd_pred = artifacts['PD'].predict_proba(X_model_ready)[:, 1]
-            # LGD: Loss Given Default
-            lgd_pred = artifacts['LGD'].predict(X_model_ready)
-            
-            # Pastikan LGD dalam rentang [0, 1] jika model regresi tidak membatasi
+            pd_pred = artifacts["PD"].predict_proba(X_model_ready)[:, 1]
+            lgd_pred = artifacts["LGD"].predict(X_model_ready)
             lgd_pred = np.clip(lgd_pred, 0, 1)
 
-            # 3. Hitung Expected Loss (EL = PD * LGD * Exposure)
             df_results = df_raw.copy()
-            df_results[txt['col_pd']] = pd_pred
-            df_results[txt['col_lgd']] = lgd_pred
-            df_results['DisbursementGross'] = df_with_features['DisbursementGross'] # Gunakan DisbursementGross yang sudah dinumerik
-            df_results[txt['col_el']] = df_results[txt['col_pd']] * df_results[txt['col_lgd']] * df_results['DisbursementGross']
-            
-            st.session_state['results'] = df_results
-            st.success("✅ Analisis Risiko Kredit Selesai!")
-        
+            df_results[txt["col_pd"]] = pd_pred
+            df_results[txt["col_lgd"]] = lgd_pred
+            df_results["DisbursementGross"] = df_feats["DisbursementGross"]
+            df_results[txt["col_el"]] = pd_pred * lgd_pred * df_feats["DisbursementGross"]
+
+            st.session_state["results"] = df_results
+            st.success("✅ Analisis selesai!")
+
         except Exception as e:
             st.error(f"❌ Kesalahan Prediksi Model: {e}")
-            st.warning("Pastikan data input mengandung semua kolom yang dibutuhkan model dan tipe datanya benar.")
+            st.warning("Pastikan fitur input sesuai dengan training model.")
 
-# --- 7. Tampilkan Hasil ---
-if 'results' in st.session_state:
-    results = st.session_state['results']
-    
-    st.header(f"2. Hasil Analisis Risiko")
-    tab1, tab2 = st.tabs([txt['tab1'], txt['tab2']])
+# --- 7. Display Results ---
+if "results" in st.session_state:
+    results = st.session_state["results"]
 
-    # --- TAB 1: Laporan Portofolio ---
+    st.header("2. Hasil Analisis Risiko")
+    tab1, tab2 = st.tabs([txt["tab1"], txt["tab2"]])
+
+    # --- TAB 1 ---
     with tab1:
-        
-        # Slider VIX Index untuk Stress Test diterapkan di sini untuk seluruh portofolio
-        st.subheader(txt['portfolio_stress_test'])
-        vix_portofolio = st.slider(txt['stress_vix'], min_value=10, max_value=80, value=20, step=1, key='vix_portfolio')
+
+        st.subheader(txt["portfolio_stress_test"])
+        vix_val = st.slider(txt["stress_vix"], 10, 80, 20, 1)
+
         st.markdown(f"*{txt['stress_desc']}*")
-        
-        # Hitung Stressed PD dan EL untuk SELURUH Portofolio
-        results['PD_Stressed'] = apply_vix_stress(results[txt['col_pd']], vix_portofolio)
-        results['EL_Stressed'] = results['PD_Stressed'] * results[txt['col_lgd']] * results['DisbursementGross']
-        
-        # Hitung Metrik Ringkasan
-        total_el_baseline = results[txt['col_el']].sum()
-        total_el_stressed = results['EL_Stressed'].sum()
-        avg_pd = results[txt['col_pd']].mean()
-        avg_lgd = results[txt['col_lgd']].mean()
-        el_impact = total_el_stressed - total_el_baseline
-        
-        st.markdown("---")
-        st.subheader(txt['portfolio_summary'])
-        
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric(
-            label=txt['total_el'], 
-            value=f"{txt['currency']} {total_el_baseline:,.0f}"
-        )
-        col2.metric(
-            label=txt['avg_pd'], 
-            value=f"{avg_pd:.2%}"
-        )
-        col3.metric(
-            label=txt['total_el_stressed'], 
-            value=f"{txt['currency']} {total_el_stressed:,.0f}"
-        )
-        col4.metric(
-            label=txt['el_impact'], 
-            value=f"{txt['currency']} {el_impact:,.0f}",
-            delta=f"{el_impact:,.0f}"
-        )
-        
-        st.markdown("---")
-        
-        # Plot Perbandingan Total EL
-        el_comparison_data = pd.DataFrame({
-            'Skenario': ['Baseline', f'Stressed (VIX={vix_portofolio})'], 
-            'Total Expected Loss': [total_el_baseline, total_el_stressed]
-        })
-        
-        fig_portfolio_el = px.bar(
-            el_comparison_data, 
-            x='Skenario', 
-            y='Total Expected Loss', 
-            text='Total Expected Loss',
-            color='Skenario',
-            color_discrete_map={'Baseline': '#1f77b4', f'Stressed (VIX={vix_portofolio})': '#ff7f0e'},
-            title="Total Expected Loss: Baseline vs. Skenario Krisis"
-        )
-        fig_portfolio_el.update_traces(
-            texttemplate=f"{txt['currency']} %{{y:,.0f}}", 
-            textposition='outside'
-        )
-        fig_portfolio_el.update_layout(yaxis_title=f"Total Expected Loss ({txt['currency']})")
-        st.plotly_chart(fig_portfolio_el, use_container_width=True)
 
-        st.subheader(f"Data Hasil (PD, LGD, EL, PD Stressed, EL Stressed)")
-        # Tampilkan DataFrame dengan format yang lebih baik
-        st.dataframe(
-            results[[
-                'Name', 'DisbursementGross', 
-                txt['col_pd'], 'PD_Stressed', 
-                txt['col_lgd'], 
-                txt['col_el'], 'EL_Stressed'
-            ]].style.format({
-                txt['col_pd']: "{:.2%}",
-                'PD_Stressed': "{:.2%}",
-                txt['col_lgd']: "{:.2%}",
-                txt['col_el']: f"{txt['currency']} {{:,.0f}}",
-                'EL_Stressed': f"{txt['currency']} {{:,.0f}}",
-                'DisbursementGross': f"{txt['currency']} {{:,.0f}}"
-            })
-        )
+        results["PD_Stressed"] = apply_vix_stress(results[txt["col_pd"]], vix_val)
+        results["EL_Stressed"] = results["PD_Stressed"] * results[txt["col_lgd"]] * results["DisbursementGross"]
 
-        # Download Button
-        csv = results.to_csv(index=False).encode('utf-8')
+        total_el = results[txt["col_el"]].sum()
+        stressed_el = results["EL_Stressed"].sum()
+        avg_pd = results[txt["col_pd"]].mean()
+        avg_lgd = results[txt["col_lgd"]].mean()
+        impact = stressed_el - total_el
+
+        st.subheader(txt["portfolio_summary"])
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(txt["total_el"], f"{txt['currency']} {total_el:,.0f}")
+        c2.metric(txt["avg_pd"], f"{avg_pd:.2%}")
+        c3.metric(txt["total_el_stressed"], f"{txt['currency']} {stressed_el:,.0f}")
+        c4.metric(txt["el_impact"], f"{txt['currency']} {impact:,.0f}", delta=f"{impact:,.0f}")
+
+        st.markdown("---")
+
+        df_show = results[[
+            "Name", "DisbursementGross",
+            txt["col_pd"], "PD_Stressed",
+            txt["col_lgd"],
+            txt["col_el"], "EL_Stressed"
+        ]]
+
+        st.dataframe(df_show.style.format({
+            txt["col_pd"]: "{:.2%}",
+            "PD_Stressed": "{:.2%}",
+            txt["col_lgd"]: "{:.2%}",
+            txt["col_el"]: f"{txt['currency']} {{:,.0f}}",
+            "EL_Stressed": f"{txt['currency']} {{:,.0f}}",
+            "DisbursementGross": f"{txt['currency']} {{:,.0f}}"
+        }))
+
+        # Download
         st.download_button(
-            label=txt['download_btn'],
-            data=csv,
-            file_name='credit_risk_analysis_results.csv',
-            mime='text/csv',
+            txt["download_btn"],
+            results.to_csv(index=False).encode("utf-8"),
+            "credit_risk_results.csv"
         )
 
-    # --- TAB 2: Inspektor & Stress Test ---
+    # --- TAB 2 ---
     with tab2:
-        # Pilihan Debitur (Gunakan data terbaru yang sudah ada kolom PD_Stressed dan EL_Stressed)
-        st.subheader(txt['risk_profile'])
-        debtor_names = results['Name'].unique().tolist()
-        debtor = st.selectbox(txt['select_debtor'], debtor_names, key='debtor_select_tab2')
-        
-        # Ambil data debitur yang dipilih
-        d = results[results['Name'] == debtor].iloc[0]
-        base_pd = d[txt['col_pd']]
-        base_lgd = d[txt['col_lgd']]
-        base_el = d[txt['col_el']]
-        exposure = d['DisbursementGross']
+        st.subheader(txt["risk_profile"])
 
-        st.markdown("---")
-        st.subheader(txt['stress_vix'])
-        st.markdown(f"*{txt['stress_desc']}*")
-        
-        # Slider VIX Index untuk Stress Test Debitur (Gunakan key berbeda)
-        # Nilai awal diset ke VIX Portofolio
-        vix_debtor = st.slider(txt['stress_vix'], min_value=10, max_value=80, value=vix_portofolio, step=1, key='vix_debtor')
-        
-        # Hitung Stressed PD dan EL UNTUK DEBITUR INI
-        stressed_pd = apply_vix_stress(base_pd, vix_debtor)
+        debtors = results["Name"].unique().tolist()
+        debtor = st.selectbox(txt["select_debtor"], debtors)
+
+        d = results[results["Name"] == debtor].iloc[0]
+        base_pd = d[txt["col_pd"]]
+        base_lgd = d[txt["col_lgd"]]
+        base_el = d[txt["col_el"]]
+        exposure = d["DisbursementGross"]
+
+        st.subheader(txt["stress_vix"])
+        vix_d = st.slider("VIX Debitur", 10, 80, vix_val, 1)
+        stressed_pd = apply_vix_stress(base_pd, vix_d)
         stressed_el = stressed_pd * base_lgd * exposure
-        
-        # Tampilkan metrik untuk debitur yang dipilih
-        col4, col5, col6 = st.columns(3)
-        col4.metric(label=f"PD ({vix_debtor=})", value=f"{stressed_pd:.2%}", delta=f"{(stressed_pd-base_pd):.2%}")
-        col5.metric(label="LGD (Fixed)", value=f"{base_lgd:.2%}")
-        col6.metric(label=f"EL ({vix_debtor=})", value=f"{txt['currency']} {stressed_el:,.0f}", delta=f"{(stressed_el-base_el):,.0f}", delta_color="inverse")
 
-        st.markdown("---")
-        st.subheader(txt['base_vs_stress'])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("PD (Stressed)", f"{stressed_pd:.2%}", delta=f"{(stressed_pd - base_pd):.2%}")
+        c2.metric("LGD", f"{base_lgd:.2%}")
+        c3.metric("EL (Stressed)", f"{txt['currency']} {stressed_el:,.0f}", delta=f"{(stressed_el - base_el):,.0f}")
 
-        # Plot Perbandingan EL Debitur
-        el_data = pd.DataFrame({
-            'Skenario': ['Baseline', f'Stressed (VIX={vix_debtor})'], 
-            'Expected Loss': [base_el, stressed_el]
+        st.subheader(txt["base_vs_stress"])
+
+        df_bar = pd.DataFrame({
+            "Scenario": ["Baseline", f"Stressed (VIX {vix_d})"],
+            "EL": [base_el, stressed_el]
         })
-        
-        fig_el = px.bar(
-            el_data, 
-            x='Skenario', 
-            y='Expected Loss', 
-            text='Expected Loss', 
-            title=f"Perbandingan EL untuk {debtor}"
-        )
-        fig_el.update_traces(
-            texttemplate=f"{txt['currency']} %{{y:,.0f}}", 
-            textposition='outside'
-        )
-        fig_el.update_layout(yaxis_title=f"Expected Loss ({txt['currency']})", uniformtext_minsize=8, uniformtext_mode='hide')
-        st.plotly_chart(fig_el, use_container_width=True)
 
-        # Plot PD & LGD
-        st.subheader(txt['debtor_pd_lgd'])
-        fig_pd_lgd = go.Figure(data=[
-            go.Bar(name='PD', x=['PD'], y=[stressed_pd], text=f"{stressed_pd:.2%}", marker_color='#1f77b4'),
-            go.Bar(name='LGD', x=['LGD'], y=[base_lgd], text=f"{base_lgd:.2%}", marker_color='#ff7f0e')
-        ])
-        fig_pd_lgd.update_layout(
-            title=f"PD & LGD Debitur",
-            yaxis_title="Persentase",
-            yaxis_tickformat=".0%",
-            barmode='group'
-        )
-        st.plotly_chart(fig_pd_lgd, use_container_width=True)
+        fig = px.bar(df_bar, x="Scenario", y="EL", text="EL")
+        fig.update_traces(texttemplate=f"{txt['currency']} %{{y:,.0f}}")
+        st.plotly_chart(fig, use_container_width=True)
 
-
-# Tampilkan pesan jika model/data belum siap
-if not artifacts:
-    st.info("Harap pastikan semua file model (.pkl) dan konfigurasi (.json) telah diunggah dan dimuat dengan benar.")
-elif 'df_raw' not in st.session_state:
-    st.info(f"Silakan unggah data portofolio Anda atau klik '{txt['demo_data']}' untuk memulai analisis.")
+# End of app
