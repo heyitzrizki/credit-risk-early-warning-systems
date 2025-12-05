@@ -39,7 +39,7 @@ def load_preprocessor_meta():
         return None
 
 pd_model, lgd_model, shap_explainer = load_models()
-meta = load_preprocessor()
+meta = load_preprocessor_meta()
 
 # Extract metadata
 if meta:
