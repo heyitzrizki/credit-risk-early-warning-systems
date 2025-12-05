@@ -1,154 +1,191 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
 import joblib
-import shap
 import json
-import os
+import numpy as np
+import pandas as pd
+import shap
 
-# ==============================
+# ====================================================================================
 # LOAD ARTIFACTS
-# ==============================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ====================================================================================
 
-PREPROCESSOR_PATH = os.path.join(BASE_DIR, "preprocessor.pkl")
-PD_MODEL_PATH = os.path.join(BASE_DIR, "PD_model.pkl")
-LGD_MODEL_PATH = os.path.join(BASE_DIR, "LGD_model.pkl")
-SHAP_PD_EXPLAINER_PATH = os.path.join(BASE_DIR, "pd_shap_explainer.pkl")
+@st.cache_resource
+def load_models():
+    try:
+        pd_model = joblib.load("PD_model_pipeline.pkl")
+        lgd_model = joblib.load("LGD_model_pipeline.pkl")
+        shap_explainer = joblib.load("pd_shap_explainer.pkl")
+        return pd_model, lgd_model, shap_explainer
+    except Exception as e:
+        st.error(f"Model Loading Error: {e}")
+        return None, None, None
 
-preprocessor = joblib.load(PREPROCESSOR_PATH)
-pd_model = joblib.load(PD_MODEL_PATH)
-lgd_model = joblib.load(LGD_MODEL_PATH)
-shap_explainer = joblib.load(SHAP_PD_EXPLAINER_PATH)
+@st.cache_resource
+def load_preprocessor_meta():
+    try:
+        with open("preprocessor_meta.json", "r") as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"Preprocessor Metadata Error: {e}")
+        return None
 
-# ==============================
-# UI CONFIG
-# ==============================
-st.set_page_config(page_title="Credit Risk Early Warning System", layout="wide")
+pd_model, lgd_model, shap_explainer = load_models()
+meta = load_preprocessor_meta()
 
-LANG = st.sidebar.selectbox("Language / Bahasa / 언어", ["EN", "ID", "KR"])
+if meta is not None:
+    NUMERIC = meta["numeric_features"]
+    BINARY = meta["binary_features"]
+    CATEG = meta["categorical_features"]
+    SCALER_MEAN = np.array(meta["scaler_mean"])
+    SCALER_SCALE = np.array(meta["scaler_scale"])
+    OHE_CATEGORIES = meta["ohe_categories"]
+else:
+    NUMERIC = BINARY = CATEG = []
+    SCALER_MEAN = SCALER_SCALE = []
+    OHE_CATEGORIES = {}
 
-# ==============================
-# TEXT DICTIONARY
-# ==============================
-TXT = {
+# ====================================================================================
+# MANUAL PREPROCESSING
+# ====================================================================================
+
+def preprocess(df_input: pd.DataFrame) -> np.ndarray:
+    df = df_input.copy()
+
+    # Ensure all required columns exist
+    for col in NUMERIC + BINARY + CATEG:
+        if col not in df.columns:
+            df[col] = 0
+
+    # 1) Scale numeric features
+    X_num = df[NUMERIC].astype(float).values
+    X_num = (X_num - SCALER_MEAN) / SCALER_SCALE
+
+    # 2) Binary passthrough
+    X_bin = df[BINARY].astype(float).values
+
+    # 3) Manual OHE
+    ohe_arrays = []
+    for cat_col in CATEG:
+        categories = OHE_CATEGORIES[cat_col]
+        mapping = {str(v): i for i, v in enumerate(categories)}
+
+        encoded = np.zeros((len(df), len(categories)))
+        for r, raw_val in enumerate(df[cat_col]):
+            key = str(raw_val)
+            if key in mapping:
+                encoded[r, mapping[key]] = 1
+        ohe_arrays.append(encoded)
+
+    X_cat = np.concatenate(ohe_arrays, axis=1)
+    X_all = np.concatenate([X_num, X_bin, X_cat], axis=1)
+    return X_all
+
+
+# ====================================================================================
+# STRESS TESTING FUNCTION
+# ====================================================================================
+
+def apply_stress(pd_pred, multiplier):
+    stressed_pd = (pd_pred * multiplier).clip(0, 1)
+    return stressed_pd
+
+
+# ====================================================================================
+# UI LANGUAGE PACK
+# ====================================================================================
+
+LANG = {
     "EN": {
         "title": "Enterprise Credit Risk Early Warning System",
-        "subtitle": "Predict PD, LGD, Expected Loss, with SHAP Explainability & Stress Test",
-        "upload": "Upload Portfolio File (CSV/XLSX)",
-        "run": "Run Analysis",
-        "pd": "Probability of Default (PD)",
-        "lgd": "Loss Given Default (LGD)",
-        "el": "Expected Loss (EL)",
-        "stress": "Stress Test (Market Shock)",
-        "shap_title": "SHAP Feature Impact (PD)",
+        "subtitle": "Predict PD, LGD, Expected Loss with SHAP Explainability & Stress Test",
+        "upload_title": "Upload Borrower Data (CSV)",
+        "predict_btn": "Run Prediction",
+        "stress_label": "Stress Test Multiplier",
+        "pd_result": "Predicted Probability of Default (PD)",
+        "lgd_result": "Predicted Loss Given Default (LGD)",
+        "el_result": "Expected Loss (EL)",
+        "shap_title": "SHAP Explainability (PD Model)"
     },
     "ID": {
         "title": "Sistem Peringatan Dini Risiko Kredit",
-        "subtitle": "Prediksi PD, LGD, Expected Loss, dengan SHAP & Stress Test",
-        "upload": "Unggah File Portofolio (CSV/XLSX)",
-        "run": "Jalankan Analisis",
-        "pd": "Probabilitas Gagal Bayar (PD)",
-        "lgd": "Loss Given Default (LGD)",
-        "el": "Expected Loss (EL)",
-        "stress": "Stress Test (Guncangan Pasar)",
-        "shap_title": "Dampak Fitur (SHAP) untuk PD",
+        "subtitle": "Prediksi PD, LGD, Expected Loss dengan SHAP & Stress Test",
+        "upload_title": "Unggah Data Peminjam (CSV)",
+        "predict_btn": "Jalankan Prediksi",
+        "stress_label": "Multiplier Stress Test",
+        "pd_result": "Probabilitas Gagal Bayar (PD)",
+        "lgd_result": "Loss Given Default (LGD)",
+        "el_result": "Expected Loss (EL)",
+        "shap_title": "Penjelasan SHAP (Model PD)"
     },
     "KR": {
-        "title": "기업 신용 리스크 조기 경보 시스템",
-        "subtitle": "PD, LGD, 예상 손실 예측 및 SHAP 설명과 스트레스 테스트",
-        "upload": "포트폴리오 파일 업로드 (CSV/XLSX)",
-        "run": "분석 실행",
-        "pd": "부도확률 (PD)",
-        "lgd": "부도시 손실률 (LGD)",
-        "el": "예상 손실 (EL)",
-        "stress": "스트레스 테스트 (시장 충격)",
-        "shap_title": "SHAP 특성 영향 (PD)",
+        "title": "기업 신용위험 조기경보 시스템",
+        "subtitle": "PD, LGD, Expected Loss 예측 및 SHAP 설명 · 스트레스 테스트 제공",
+        "upload_title": "차입자 데이터 업로드 (CSV)",
+        "predict_btn": "예측 실행",
+        "stress_label": "스트레스 테스트 배수",
+        "pd_result": "부도확률 (PD)",
+        "lgd_result": "손실률 (LGD)",
+        "el_result": "예상손실 (EL)",
+        "shap_title": "SHAP 설명 (PD 모델)"
     }
 }
-T = TXT[LANG]
 
-# ==============================
-# PAGE HEADER
-# ==============================
+# ====================================================================================
+# STREAMLIT UI
+# ====================================================================================
+
+st.set_page_config(page_title="Credit Risk EWS", layout="wide")
+
+# Sidebar language
+lang_choice = st.sidebar.selectbox("Language / Bahasa / 언어", ["EN", "ID", "KR"])
+T = LANG[lang_choice]
+
 st.title(T["title"])
-st.write(f"**{T['subtitle']}**")
+st.write(T["subtitle"])
+st.write("")
 
-# ==============================
-# FILE UPLOAD
-# ==============================
-st.header(T["upload"])
-file = st.file_uploader("", type=["csv", "xlsx"])
+uploaded = st.file_uploader(T["upload_title"], type=["csv"])
 
-if file:
-    df = pd.read_csv(file) if file.name.endswith("csv") else pd.read_excel(file)
-    st.write("### Preview")
+stress_mult = st.sidebar.slider(T["stress_label"], 0.5, 3.0, 1.0, 0.1)
+
+if uploaded is not None:
+    df = pd.read_csv(uploaded)
+    st.write("### Raw Data Preview")
     st.dataframe(df.head())
 
-    if st.button(T["run"]):
-
-        # ==============================
-        # PREPROCESS DATA
-        # ==============================
-        try:
-            X = preprocessor.transform(df)
-        except Exception as e:
-            st.error(f"Preprocessing Error: {e}")
-            st.stop()
-
-        # ==============================
-        # PREDICT PD & LGD
-        # ==============================
-        pd_pred = pd_model.predict_proba(X)[:, 1]
-        lgd_pred = lgd_model.predict(X)
-
-        # Compute Expected Loss
-        # Assume Exposure = loan amount column
-        if "DisbursementGross" in df.columns:
-            ead = df["DisbursementGross"].astype(float)
+    if st.button(T["predict_btn"]):
+        if pd_model is None:
+            st.error("Models not loaded.")
         else:
-            ead = np.ones(len(df)) * 100000  # default
+            X = preprocess(df)
 
-        el = pd_pred * lgd_pred * ead
+            pd_pred = pd_model.predict_proba(X)[:, 1]
+            lgd_pred = lgd_model.predict(X)
+            el_pred = pd_pred * lgd_pred
 
-        result = df.copy()
-        result["PD"] = pd_pred
-        result["LGD"] = lgd_pred
-        result["EL"] = el
+            stressed_pd = apply_stress(pd_pred, stress_mult)
+            stressed_el = stressed_pd * lgd_pred
 
-        st.write("### Results")
-        st.dataframe(result[["PD", "LGD", "EL"]].head())
+            st.subheader(T["pd_result"])
+            st.write(pd_pred)
 
-        # ==============================
-        # STRESS TEST MODULE
-        # ==============================
-        st.subheader(T["stress"])
-        stress_level = st.slider("Market Shock %", 0, 200, 50)
-        stressed_pd = np.clip(pd_pred * (1 + stress_level/100), 0, 1)
-        stressed_el = stressed_pd * lgd_pred * ead
+            st.subheader(T["lgd_result"])
+            st.write(lgd_pred)
 
-        st.write("#### Stress Test Result Preview")
-        st.dataframe(pd.DataFrame({
-            "PD_baseline": pd_pred,
-            "PD_stressed": stressed_pd,
-            "EL_stressed": stressed_el
-        }).head())
+            st.subheader(T["el_result"])
+            st.write(el_pred)
 
-        # ==============================
-        # SHAP PLOT
-        # ==============================
-        st.subheader(T["shap_title"])
+            st.write("### Stress Test Result (PD & EL)")
+            st.write("Stressed PD:", stressed_pd)
+            st.write("Stressed Expected Loss:", stressed_el)
 
-        shap_values = shap_explainer.shap_values(X)
+            # SHAP PLOT
+            st.subheader(T["shap_title"])
+            shap_values = shap_explainer.shap_values(X)
+            st.set_option("deprecation.showPyplotGlobalUse", False)
+            st.pyplot(shap.summary_plot(shap_values, X))
 
-        st.write("#### Feature Impact Summary Plot")
-        shap.summary_plot(shap_values, X, show=False)
-        st.pyplot(bbox_inches="tight")
 
-        # Optional download
-        st.download_button(
-            label="Download Results CSV",
-            data=result.to_csv(index=False).encode("utf-8"),
-            file_name="credit_risk_results.csv",
-            mime="text/csv"
-        )
+else:
+    st.info("Please upload a CSV file to begin.")
+
