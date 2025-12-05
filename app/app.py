@@ -4,6 +4,7 @@ import json
 import numpy as np
 import pandas as pd
 import shap
+import plotly.graph_objects as go
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,8 +17,7 @@ def load_models():
         lgd_model = joblib.load(p("LGD_model.pkl"))
         shap_explainer = joblib.load(p("pd_shap_explainer.pkl"))
         return pd_model, lgd_model, shap_explainer
-    except Exception as e:
-        st.error(f"Model Loading Error: {e}")
+    except:
         return None, None, None
 
 @st.cache_resource
@@ -25,8 +25,7 @@ def load_preprocessor_meta():
     try:
         with open(p("preprocessor_meta.json"), "r") as f:
             return json.load(f)
-    except Exception as e:
-        st.error(f"Preprocessor Metadata Error: {e}")
+    except:
         return None
 
 pd_model, lgd_model, shap_explainer = load_models()
@@ -44,6 +43,34 @@ else:
     SCALER_MEAN = SCALER_SCALE = []
     OHE_CATEGORIES = {}
 
+NAICS_LABELS = {
+    "11": "Agriculture, Forestry, Fishing & Hunting",
+    "21": "Mining, Quarrying, Oil & Gas",
+    "22": "Utilities",
+    "23": "Construction",
+    "31": "Manufacturing",
+    "32": "Manufacturing",
+    "33": "Manufacturing",
+    "42": "Wholesale Trade",
+    "44": "Retail Trade",
+    "45": "Retail Trade",
+    "48": "Transportation",
+    "49": "Warehousing",
+    "51": "Information Services",
+    "52": "Finance & Insurance",
+    "53": "Real Estate & Leasing",
+    "54": "Professional, Scientific & Technical Services",
+    "55": "Management of Companies",
+    "56": "Administrative & Support Services",
+    "61": "Educational Services",
+    "62": "Healthcare & Social Assistance",
+    "71": "Arts & Recreation",
+    "72": "Accommodation & Food Services",
+    "81": "Other Services",
+    "92": "Public Administration",
+    "Un": "Unknown"
+}
+
 def preprocess_single(input_dict):
     df = pd.DataFrame([input_dict])
     for col in NUMERIC + BINARY + CATEG:
@@ -52,7 +79,6 @@ def preprocess_single(input_dict):
 
     X_num = df[NUMERIC].astype(float).values
     X_num = (X_num - SCALER_MEAN) / SCALER_SCALE
-
     X_bin = df[BINARY].astype(float).values
 
     ohe_arrays = []
@@ -60,80 +86,48 @@ def preprocess_single(input_dict):
         categories = OHE_CATEGORIES[col]
         mapping = {str(v): i for i, v in enumerate(categories)}
         encoded = np.zeros((1, len(categories)))
-        val = str(df[col].iloc[0])
-        if val in mapping:
-            encoded[0, mapping[val]] = 1
+        v = str(df[col].iloc[0])
+        if v in mapping:
+            encoded[0, mapping[v]] = 1
         ohe_arrays.append(encoded)
 
     X_cat = np.concatenate(ohe_arrays, axis=1)
     return np.concatenate([X_num, X_bin, X_cat], axis=1)
 
-def gauge_color(pd_value):
-    if pd_value < 0.20:
-        return "#2ecc71"
-    elif pd_value < 0.50:
-        return "#f1c40f"
+def risk_grade(pd_val):
+    if pd_val < 0.02:
+        return "Very Low Risk", "#2ecc71"
+    elif pd_val < 0.10:
+        return "Low Risk", "#7ed957"
+    elif pd_val < 0.30:
+        return "Moderate Risk", "#f1c40f"
+    elif pd_val < 0.60:
+        return "High Risk", "#e67e22"
     else:
-        return "#e74c3c"
+        return "Critical Risk", "#e74c3c"
 
-def apply_stress(pd_pred, mult):
-    return float(np.clip(pd_pred * mult, 0, 1))
+def gauge(pd_value):
+    risk_label, color = risk_grade(pd_value)
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=pd_value,
+        number={'valueformat': '.2f'},
+        gauge={
+            "axis": {"range": [0, 1]},
+            "bar": {"color": color},
+            "steps": [
+                {"range": [0, 0.02], "color": "#2ecc71"},
+                {"range": [0.02, 0.10], "color": "#7ed957"},
+                {"range": [0.10, 0.30], "color": "#f1c40f"},
+                {"range": [0.30, 0.60], "color": "#e67e22"},
+                {"range": [0.60, 1.00], "color": "#e74c3c"},
+            ]
+        }
+    ))
+    fig.update_layout(height=300, margin=dict(l=20, r=20, t=40, b=10))
+    return fig, risk_label, color
 
-LANG = {
-    "EN": {
-        "title": "Enterprise Credit Risk Early Warning System",
-        "subtitle": "Predict PD, LGD, Expected Loss with SHAP Explainability & Stress Test",
-        "inputs": "Borrower Information",
-        "predict_btn": "Run Prediction",
-        "stress_label": "Stress Scenario",
-        "pd_result": "Probability of Default (PD)",
-        "lgd_result": "Loss Given Default (LGD)",
-        "el_result": "Expected Loss (EL)",
-        "stress_section": "Stress Scenarios",
-        "shap_title": "SHAP Explainability (PD Model)"
-    },
-    "ID": {
-        "title": "Sistem Peringatan Dini Risiko Kredit",
-        "subtitle": "Prediksi PD, LGD, Expected Loss dengan SHAP & Stress Test",
-        "inputs": "Informasi Peminjam",
-        "predict_btn": "Jalankan Prediksi",
-        "stress_label": "Skenario Stress",
-        "pd_result": "Probabilitas Gagal Bayar (PD)",
-        "lgd_result": "Loss Given Default (LGD)",
-        "el_result": "Expected Loss (EL)",
-        "stress_section": "Skenario Stress",
-        "shap_title": "Penjelasan SHAP (Model PD)"
-    },
-    "KR": {
-        "title": "기업 신용위험 조기경보 시스템",
-        "subtitle": "PD, LGD, Expected Loss 예측 및 SHAP 설명 · 스트레스 테스트 제공",
-        "inputs": "대출자 정보",
-        "predict_btn": "예측 실행",
-        "stress_label": "스트레스 시나리오",
-        "pd_result": "부도확률 (PD)",
-        "lgd_result": "손실률 (LGD)",
-        "el_result": "예상손실 (EL)",
-        "stress_section": "스트레스 결과",
-        "shap_title": "SHAP 설명 (PD 모델)"
-    }
-}
-
-st.set_page_config(page_title="Credit Risk EWS", layout="wide")
-
-lang_choice = st.sidebar.selectbox("Language / Bahasa / 언어", ["EN", "ID", "KR"])
-T = LANG[lang_choice]
-
-st.title(T["title"])
-st.write(T["subtitle"])
-st.write("")
-
-scenario = st.sidebar.selectbox(
-    T["stress_label"],
-    ["Base Case", "Mild Stress (Economic Slowdown)", "Moderate Stress (Credit Tightening)", 
-     "Severe Stress (Recession)", "Extreme Stress (Black Swan Event)"]
-)
-
-scenario_map = {
+SCENARIOS = {
     "Base Case": 1.0,
     "Mild Stress (Economic Slowdown)": 1.2,
     "Moderate Stress (Credit Tightening)": 1.5,
@@ -141,82 +135,88 @@ scenario_map = {
     "Extreme Stress (Black Swan Event)": 3.0
 }
 
-stress_mult = scenario_map[scenario]
+LANG = {
+    "EN": {
+        "title": "Enterprise Credit Risk Early Warning System",
+        "subtitle": "Corporate Credit Risk Dashboard — PD, LGD, Expected Loss",
+        "inputs": "Borrower Information",
+        "predict": "Run Prediction",
+        "stress": "Stress Scenario",
+        "results": "Risk Assessment Results",
+        "shap": "Risk Drivers (Explainability)"
+    }
+}
 
-st.sidebar.info(f"Stress Multiplier Applied: ×{stress_mult}")
+T = LANG["EN"]
 
-st.subheader(T["inputs"])
+st.set_page_config(page_title="Corporate Credit Risk EWS", layout="wide")
 
-col1, col2 = st.columns(2)
+st.title(T["title"])
+st.write(T["subtitle"])
 
-with col1:
+left, right = st.columns([1, 1])
+
+with left:
     Term = st.number_input("Loan Term (Months)", min_value=1, value=60)
     NoEmp = st.number_input("Number of Employees", min_value=0, value=10)
-    loan_amt = st.number_input("Loan Amount (USD)", min_value=0.0, value=5000.0)
+    loan_amt = st.number_input("Loan Amount (USD)", min_value=0.0, value=10000.0)
     log_loan_amt = float(np.log1p(loan_amt))
 
-with col2:
-    new_business = st.selectbox("Is this a new business?", ["No", "Yes"])
-    low_doc = st.selectbox("Low documentation loan?", ["No", "Yes"])
-    urban_flag = st.selectbox("Urban area?", ["No", "Yes"])
+with right:
+    new_business = st.selectbox("Is Borrower Newly Established?", ["No", "Yes"])
+    low_doc = st.selectbox("Low Documentation Loan?", ["No", "Yes"])
+    urban_flag = st.selectbox("Urban Area?", ["No", "Yes"])
 
 new_business = 1 if new_business == "Yes" else 0
 low_doc = 1 if low_doc == "Yes" else 0
 urban_flag = 1 if urban_flag == "Yes" else 0
 
-NAICS_map = {code: f"{code} — Industry Sector" for code in OHE_CATEGORIES["NAICS_2"]}
-Approval_map = {yr: str(yr) for yr in OHE_CATEGORIES["ApprovalFY"]}
+naics_display = [f"{k} — {v}" for k, v in NAICS_LABELS.items() if k in OHE_CATEGORIES["NAICS_2"]]
+sel_naics = st.selectbox("Industry Sector (NAICS)", naics_display)
+NAICS_2 = sel_naics.split(" — ")[0]
 
-NAICS_2 = st.selectbox("Industry Sector (NAICS)", list(NAICS_map.keys()), format_func=lambda x: NAICS_map[x])
-ApprovalFY = st.selectbox("Loan Approval Year", list(Approval_map.keys()))
+ApprovalFY = st.selectbox("Loan Approval Year", OHE_CATEGORIES["ApprovalFY"])
 
-if st.button(T["predict_btn"]):
-    if pd_model is None:
-        st.error("Model failed to load.")
-    else:
-        input_data = {
-            "Term": Term,
-            "NoEmp": NoEmp,
-            "log_loan_amt": log_loan_amt,
-            "new_business": new_business,
-            "low_doc": low_doc,
-            "urban_flag": urban_flag,
-            "NAICS_2": NAICS_2,
-            "ApprovalFY": ApprovalFY
-        }
+scenario_choice = st.sidebar.selectbox(T["stress"], list(SCENARIOS.keys()))
+stress_mult = SCENARIOS[scenario_choice]
 
-        X = preprocess_single(input_data)
+if st.button(T["predict"]):
+    X = preprocess_single({
+        "Term": Term,
+        "NoEmp": NoEmp,
+        "log_loan_amt": log_loan_amt,
+        "new_business": new_business,
+        "low_doc": low_doc,
+        "urban_flag": urban_flag,
+        "NAICS_2": NAICS_2,
+        "ApprovalFY": ApprovalFY
+    })
 
-        pd_pred = float(pd_model.predict_proba(X)[0][1])
-        lgd_pred = float(lgd_model.predict(X)[0])
-        el_pred = pd_pred * lgd_pred
+    pd_val = float(pd_model.predict_proba(X)[0][1])
+    lgd_val = float(np.clip(lgd_model.predict(X)[0], 0, 1))
+    el_val = pd_val * lgd_val * loan_amt
 
-        stressed_pd = apply_stress(pd_pred, stress_mult)
-        stressed_el = stressed_pd * lgd_pred
+    stressed_pd = float(np.clip(pd_val * stress_mult, 0, 1))
+    stressed_el = stressed_pd * lgd_val * loan_amt
 
-        color = gauge_color(pd_pred)
-        st.markdown(
-            f"""
-            <div style='padding:20px; background-color:{color}; border-radius:10px; color:white; font-size:22px; text-align:center;'>
-                PD Risk Level: {round(pd_pred,4)}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    rcol1, rcol2 = st.columns([1, 2])
 
-        st.subheader(T["pd_result"])
-        st.success(round(pd_pred, 4))
+    with rcol1:
+        fig, rating, color = gauge(pd_val)
+        st.subheader("Risk Level")
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown(f"<h4 style='color:{color};'>{rating}</h4>", unsafe_allow_html=True)
 
-        st.subheader(T["lgd_result"])
-        st.success(round(lgd_pred, 4))
+    with rcol2:
+        st.subheader(T["results"])
+        st.write(f"**Probability of Default (PD):** {pd_val:.2%}")
+        st.write(f"**Loss Given Default (LGD):** {lgd_val:.2f}")
+        st.write(f"**Expected Loss (EL):** ${el_val:,.2f}")
+        st.markdown("---")
+        st.write(f"**Stress Scenario:** {scenario_choice}")
+        st.write(f"**Stressed PD:** {stressed_pd:.2%}")
+        st.write(f"**Stressed Expected Loss:** ${stressed_el:,.2f}")
 
-        st.subheader(T["el_result"])
-        st.success(round(el_pred, 4))
-
-        st.subheader(T["stress_section"])
-        st.info(f"Stressed PD: {round(stressed_pd,4)}")
-        st.info(f"Stressed Expected Loss: {round(stressed_el,4)}")
-
-        st.subheader(T["shap_title"])
-        shap_values = shap_explainer.shap_values(X)
-        st.pyplot(shap.summary_plot(shap_values, X))
+    st.subheader(T["shap"])
+    shap_vals = shap_explainer.shap_values(X)
+    st.pyplot(shap.summary_plot(shap_vals, X))
