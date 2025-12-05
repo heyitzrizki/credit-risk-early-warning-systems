@@ -5,6 +5,9 @@ import numpy as np
 import pandas as pd
 import shap
 import os
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # ====================================================================================
 # FIX PATH — ensure Streamlit loads files relative to folder containing app.py
@@ -29,6 +32,7 @@ def load_models():
         st.error(f"Model Loading Error: {e}")
         return None, None, None
 
+
 @st.cache_resource
 def load_preprocessor_meta():
     try:
@@ -37,6 +41,7 @@ def load_preprocessor_meta():
     except Exception as e:
         st.error(f"Preprocessor Metadata Error: {e}")
         return None
+
 
 pd_model, lgd_model, shap_explainer = load_models()
 meta = load_preprocessor_meta()
@@ -54,25 +59,61 @@ else:
     SCALER_MEAN = SCALER_SCALE = []
     OHE_CATEGORIES = {}
 
-# =========================================================
+# ====================================================================================
+# CUSTOM FINTECH MINIMALIST UI
+# ====================================================================================
+st.set_page_config(page_title="Credit Risk EWS", layout="wide")
+
+st.markdown("""
+<style>
+
+    .main {
+        background-color: #0f172a;
+        color: #e2e8f0;
+    }
+
+    section[data-testid="stSidebar"] {
+        background-color: #111827;
+        color: white;
+    }
+
+    .result-card {
+        background-color: #1e293b;
+        padding: 18px;
+        border-radius: 12px;
+        margin-top: 12px;
+        box-shadow: 0px 2px 5px rgba(0,0,0,0.25);
+    }
+
+    h2, h3, h4 {
+        color: #60a5fa;
+    }
+
+    .stSlider > div > div > div > div {
+        background: #3b82f6;
+    }
+
+</style>
+""", unsafe_allow_html=True)
+
+# ====================================================================================
 # MANUAL PREPROCESSING
-# =========================================================
+# ====================================================================================
 def preprocess_single(input_dict):
     df = pd.DataFrame([input_dict])
 
-    # Ensure all required cols exist
     for col in NUMERIC + BINARY + CATEG:
         if col not in df.columns:
             df[col] = 0
 
-    # Numeric scaling
+    # Numeric
     X_num = df[NUMERIC].astype(float).values
     X_num = (X_num - SCALER_MEAN) / SCALER_SCALE
 
-    # Binary pass-through
+    # Binary
     X_bin = df[BINARY].astype(float).values
 
-    # OHE categorical
+    # OHE categories
     ohe_arrays = []
     for col in CATEG:
         categories = OHE_CATEGORIES[col]
@@ -88,58 +129,95 @@ def preprocess_single(input_dict):
     X_cat = np.concatenate(ohe_arrays, axis=1)
     return np.concatenate([X_num, X_bin, X_cat], axis=1)
 
-# =========================================================
+# ====================================================================================
 # STRESS TEST FUNCTION
-# =========================================================
+# ====================================================================================
 def apply_stress(pd_pred, mult):
     return float(np.clip(pd_pred * mult, 0, 1))
 
-# =========================================================
+# ====================================================================================
 # LANGUAGE PACK
-# =========================================================
+# ====================================================================================
 LANG = {
     "EN": {
         "title": "Enterprise Credit Risk Early Warning System",
         "subtitle": "Predict PD, LGD, Expected Loss with SHAP Explainability & Stress Test",
-        "inputs": "Borrower Input Features",
+
+        "inputs": "Borrower Information",
         "predict_btn": "Run Prediction",
+
+        "term": "Loan Term (months)",
+        "noemp": "Number of Employees",
+        "loan": "Loan Amount (approx.)",
+
+        "newbiz": "Is this a new business?",
+        "lowdoc": "Documentation Quality",
+        "urban": "Business Location",
+        "naics": "Business Sector (NAICS)",
+        "fiscal": "Fiscal Year",
+
         "stress_label": "Stress Test Multiplier",
-        "pd_result": "Predicted Probability of Default (PD)",
-        "lgd_result": "Predicted Loss Given Default (LGD)",
+        "pd_result": "Probability of Default (PD)",
+        "lgd_result": "Loss Given Default (LGD)",
         "el_result": "Expected Loss (EL)",
-        "stress_section": "Stressed PD & Expected Loss",
+        "stress_section": "Stress Scenarios",
         "shap_title": "SHAP Explainability (PD Model)"
     },
+
     "ID": {
         "title": "Sistem Peringatan Dini Risiko Kredit",
         "subtitle": "Prediksi PD, LGD, Expected Loss dengan SHAP & Stress Test",
-        "inputs": "Masukkan Fitur Peminjam",
+
+        "inputs": "Informasi Peminjam",
         "predict_btn": "Jalankan Prediksi",
+
+        "term": "Tenor Pinjaman (bulan)",
+        "noemp": "Jumlah Karyawan",
+        "loan": "Jumlah Pinjaman (perkiraan)",
+
+        "newbiz": "Apakah bisnis baru?",
+        "lowdoc": "Kualitas Dokumen",
+        "urban": "Lokasi Bisnis",
+        "naics": "Sektor Bisnis (NAICS)",
+        "fiscal": "Tahun Fiskal",
+
         "stress_label": "Multiplier Stress Test",
         "pd_result": "Probabilitas Gagal Bayar (PD)",
         "lgd_result": "Loss Given Default (LGD)",
         "el_result": "Expected Loss (EL)",
-        "stress_section": "PD & Expected Loss setelah Stress",
+        "stress_section": "Skenario Stress",
         "shap_title": "Penjelasan SHAP (Model PD)"
     },
+
     "KR": {
         "title": "기업 신용위험 조기경보 시스템",
-        "subtitle": "PD, LGD, Expected Loss 예측 및 SHAP 설명 · 스트레스 테스트",
-        "inputs": "대출자 입력 정보",
+        "subtitle": "PD, LGD, Expected Loss 예측 · SHAP 설명 · 스트레스 테스트",
+
+        "inputs": "차입자 정보 입력",
         "predict_btn": "예측 실행",
-        "stress_label": "스트레스 테스트 배수",
+
+        "term": "대출 기간 (개월)",
+        "noemp": "직원 수",
+        "loan": "대출 금액 (대략적)",
+
+        "newbiz": "신규 사업체 여부",
+        "lowdoc": "서류 품질",
+        "urban": "지역 구분",
+        "naics": "산업 분야 (NAICS)",
+        "fiscal": "회계연도",
+
+        "stress_label": "스트레스 배수",
         "pd_result": "부도확률 (PD)",
         "lgd_result": "손실률 (LGD)",
         "el_result": "예상손실 (EL)",
-        "stress_section": "스트레스 적용 후 PD & Expected Loss",
+        "stress_section": "스트레스 시나리오",
         "shap_title": "SHAP 설명 (PD 모델)"
-    },
+    }
 }
 
-# =========================================================
+# ====================================================================================
 # STREAMLIT UI
-# =========================================================
-st.set_page_config(page_title="Credit Risk EWS", layout="wide")
+# ====================================================================================
 
 lang_choice = st.sidebar.selectbox("Language / Bahasa / 언어", ["EN", "ID", "KR"])
 T = LANG[lang_choice]
@@ -152,29 +230,36 @@ st.write("")
 stress_mult = st.sidebar.slider(T["stress_label"], 0.5, 3.0, 1.0, 0.1)
 
 # ================================
-# Manual Input Section
+# MANUAL INPUT SECTION
 # ================================
-st.subheader(T["inputs"])
+st.markdown("<h3>📌 " + T["inputs"] + "</h3>", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 
 with col1:
-    Term = st.number_input("Term (months)", min_value=1, value=60)
-    NoEmp = st.number_input("Number of Employees", min_value=0, value=5)
-    log_loan_amt = st.number_input("log(Loan Amount)", value=10.5)
+    Term = st.number_input(T["term"], min_value=1, value=60)
+    NoEmp = st.number_input(T["noemp"], min_value=0, value=5)
+    loan_amount = st.number_input(T["loan"], min_value=1000, max_value=5000000, value=200000)
+    log_loan_amt = np.log(loan_amount)
 
 with col2:
-    new_business = st.selectbox("New Business (0/1)", [0,1])
-    low_doc = st.selectbox("Low Documentation (0/1)", [0,1])
-    urban_flag = st.selectbox("Urban Area (0/1)", [0,1])
+    new_business = st.selectbox(T["newbiz"], ["Yes", "No"])
+    low_doc_quality = st.selectbox(T["lowdoc"], ["High Quality", "Medium", "Low"])
+    urban_area = st.selectbox(T["urban"], ["Urban", "Suburban", "Rural"])
 
-NAICS_2 = st.selectbox("NAICS Sector", OHE_CATEGORIES["NAICS_2"])
-ApprovalFY = st.selectbox("Fiscal Year", OHE_CATEGORIES["ApprovalFY"])
+# Convert friendly labels → model values
+newbiz_val = 1 if new_business == "Yes" else 0
+lowdoc_val = 1 if low_doc_quality == "Low" else 0
+urban_val = 1 if urban_area == "Urban" else 0
+
+NAICS_2 = st.selectbox(T["naics"], OHE_CATEGORIES["NAICS_2"])
+ApprovalFY = st.selectbox(T["fiscal"], OHE_CATEGORIES["ApprovalFY"])
 
 # ================================
 # Predict Button
 # ================================
 if st.button(T["predict_btn"]):
+
     if pd_model is None:
         st.error("Model failed to load.")
     else:
@@ -182,41 +267,68 @@ if st.button(T["predict_btn"]):
             "Term": Term,
             "NoEmp": NoEmp,
             "log_loan_amt": log_loan_amt,
-            "new_business": new_business,
-            "low_doc": low_doc,
-            "urban_flag": urban_flag,
+            "new_business": newbiz_val,
+            "low_doc": lowdoc_val,
+            "urban_flag": urban_val,
             "NAICS_2": NAICS_2,
             "ApprovalFY": ApprovalFY
         }
 
         X = preprocess_single(input_data)
 
-        # Baseline predictions
         pd_pred = float(pd_model.predict_proba(X)[0][1])
         lgd_pred = float(lgd_model.predict(X)[0])
         el_pred = pd_pred * lgd_pred
 
-        # Stress
         stressed_pd = apply_stress(pd_pred, stress_mult)
         stressed_el = stressed_pd * lgd_pred
 
-        # Results
-        st.subheader(T["pd_result"])
-        st.success(round(pd_pred, 4))
+        # OUTPUT CARDS
+        st.markdown(f"""
+        <div class="result-card">
+            <h4>{T["pd_result"]}</h4>
+            <p style='font-size:24px; font-weight:700; color:#93c5fd;'>{round(pd_pred,4)}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        st.subheader(T["lgd_result"])
-        st.success(round(lgd_pred, 4))
+        st.markdown(f"""
+        <div class="result-card">
+            <h4>{T["lgd_result"]}</h4>
+            <p style='font-size:24px; font-weight:700; color:#93c5fd;'>{round(lgd_pred,4)}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        st.subheader(T["el_result"])
-        st.success(round(el_pred, 4))
+        st.markdown(f"""
+        <div class="result-card">
+            <h4>{T["el_result"]}</h4>
+            <p style='font-size:24px; font-weight:700; color:#93c5fd;'>{round(el_pred,4)}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        st.subheader(T["stress_section"])
-        st.info(f"Stressed PD: {round(stressed_pd,4)}")
-        st.info(f"Stressed Expected Loss: {round(stressed_el,4)}")
+        # Stress Results
+        st.markdown(f"""
+        <div class="result-card">
+            <h4>{T["stress_section"]}</h4>
+            <p>Stressed PD: <b>{round(stressed_pd,4)}</b></p>
+            <p>Stressed Expected Loss: <b>{round(stressed_el,4)}</b></p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # SHAP plot
-        st.subheader(T["shap_title"])
+        # SHAP Explainability
+        st.markdown("<h3>🔍 " + T["shap_title"] + "</h3>", unsafe_allow_html=True)
+
         shap_values = shap_explainer.shap_values(X)
-        st.set_option("deprecation.showPyplotGlobalUse", False)
-        st.pyplot(shap.summary_plot(shap_values, X))
 
+        tab1, tab2 = st.tabs(["Summary Plot", "Top Features"])
+
+        with tab1:
+            fig = shap.summary_plot(shap_values, X, show=False)
+            st.pyplot(fig)
+
+        with tab2:
+            shap_df = pd.DataFrame({
+                "Feature": NUMERIC + BINARY + CATEG,
+                "Impact": np.abs(shap_values).mean(axis=0)
+            }).sort_values("Impact", ascending=False)
+
+            st.dataframe(shap_df.head(10))
