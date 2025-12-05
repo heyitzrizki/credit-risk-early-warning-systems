@@ -1,222 +1,198 @@
 import streamlit as st
-import joblib
-import json
-import numpy as np
 import pandas as pd
+import numpy as np
+import joblib
 import shap
-import plotly.graph_objects as go
 import os
+import plotly.graph_objects as go
 
+# ================================================================
+# FIX PATH (ensure Streamlit finds models inside app folder)
+# ================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-def p(path): return os.path.join(BASE_DIR, path)
+def p(x): return os.path.join(BASE_DIR, x)
 
+# ================================================================
+# LOAD MODELS (Pipeline models — includes preprocessing)
+# ================================================================
 @st.cache_resource
 def load_models():
     try:
-        pd_model = joblib.load(p("PD_model.pkl"))
-        lgd_model = joblib.load(p("LGD_model.pkl"))
-        shap_explainer = joblib.load(p("pd_shap_explainer.pkl"))
-        return pd_model, lgd_model, shap_explainer
-    except:
+        pd_model = joblib.load(p("PD_pipeline.pkl"))
+        lgd_model = joblib.load(p("LGD_pipeline.pkl"))
+        shap_exp = joblib.load(p("pd_shap_explainer.pkl"))
+        return pd_model, lgd_model, shap_exp
+    except Exception as e:
+        st.error(f"❌ Model Loading Error: {e}")
         return None, None, None
 
-@st.cache_resource
-def load_preprocessor_meta():
-    try:
-        with open(p("preprocessor_meta.json"), "r") as f:
-            return json.load(f)
-    except:
-        return None
-
 pd_model, lgd_model, shap_explainer = load_models()
-meta = load_preprocessor_meta()
 
-if meta:
-    NUMERIC = meta["numeric_features"]
-    BINARY = meta["binary_features"]
-    CATEG = meta["categorical_features"]
-    SCALER_MEAN = np.array(meta["scaler_mean"])
-    SCALER_SCALE = np.array(meta["scaler_scale"])
-    OHE_CATEGORIES = meta["ohe_categories"]
-else:
-    NUMERIC = BINARY = CATEG = []
-    SCALER_MEAN = SCALER_SCALE = []
-    OHE_CATEGORIES = {}
-
-NAICS_LABELS = {
-    "11": "Agriculture, Forestry, Fishing & Hunting",
-    "21": "Mining, Quarrying, Oil & Gas",
-    "22": "Utilities",
-    "23": "Construction",
-    "31": "Manufacturing",
-    "32": "Manufacturing",
-    "33": "Manufacturing",
-    "42": "Wholesale Trade",
-    "44": "Retail Trade",
-    "45": "Retail Trade",
-    "48": "Transportation",
-    "49": "Warehousing",
-    "51": "Information Services",
-    "52": "Finance & Insurance",
-    "53": "Real Estate & Leasing",
-    "54": "Professional, Scientific & Technical Services",
-    "55": "Management of Companies",
-    "56": "Administrative & Support Services",
-    "61": "Educational Services",
-    "62": "Healthcare & Social Assistance",
-    "71": "Arts & Recreation",
-    "72": "Accommodation & Food Services",
-    "81": "Other Services",
-    "92": "Public Administration",
-    "Un": "Unknown"
+# ================================================================
+# HUMAN-FRIENDLY NAICS LABELS
+# ================================================================
+NAICS_MAP = {
+    "11": "11 — Agriculture, Forestry, Fishing & Hunting",
+    "21": "21 — Mining, Quarrying, Oil & Gas",
+    "22": "22 — Utilities",
+    "23": "23 — Construction",
+    "31": "31 — Manufacturing (A)",
+    "32": "32 — Manufacturing (B)",
+    "33": "33 — Manufacturing (C)",
+    "42": "42 — Wholesale Trade",
+    "44": "44 — Retail Trade (A)",
+    "45": "45 — Retail Trade (B)",
+    "48": "48 — Transportation",
+    "49": "49 — Warehousing",
+    "51": "51 — Information Services",
+    "52": "52 — Finance & Insurance",
+    "53": "53 — Real Estate & Rental",
+    "54": "54 — Professional Services",
+    "55": "55 — Management Companies",
+    "56": "56 — Administrative Support",
+    "61": "61 — Education Services",
+    "62": "62 — Health Care",
+    "71": "71 — Arts & Entertainment",
+    "72": "72 — Accommodation & Food",
+    "81": "81 — Other Services",
+    "92": "92 — Public Administration",
+    "Un": "Unknown Industry"
 }
 
-def preprocess_single(input_dict):
-    df = pd.DataFrame([input_dict])
-    for col in NUMERIC + BINARY + CATEG:
-        if col not in df.columns:
-            df[col] = 0
+NAICS_OPTIONS = list(NAICS_MAP.values())
 
-    X_num = df[NUMERIC].astype(float).values
-    X_num = (X_num - SCALER_MEAN) / SCALER_SCALE
-    X_bin = df[BINARY].astype(float).values
+def extract_naics_code(label):
+    return label.split(" — ")[0]
 
-    ohe_arrays = []
-    for col in CATEG:
-        categories = OHE_CATEGORIES[col]
-        mapping = {str(v): i for i, v in enumerate(categories)}
-        encoded = np.zeros((1, len(categories)))
-        v = str(df[col].iloc[0])
-        if v in mapping:
-            encoded[0, mapping[v]] = 1
-        ohe_arrays.append(encoded)
+# ================================================================
+# STRESS TEST FUNCTION
+# ================================================================
+def apply_stress(pd_value, severity):
+    """
+    severity: 'Mild', 'Moderate', 'Severe'
+    """
+    factor = {"Mild": 1.1, "Moderate": 1.25, "Severe": 1.5}[severity]
+    stressed = min(pd_value * factor, 1.0)
+    return stressed
 
-    X_cat = np.concatenate(ohe_arrays, axis=1)
-    return np.concatenate([X_num, X_bin, X_cat], axis=1)
-
-def risk_grade(pd_val):
-    if pd_val < 0.02:
-        return "Very Low Risk", "#2ecc71"
-    elif pd_val < 0.10:
-        return "Low Risk", "#7ed957"
-    elif pd_val < 0.30:
-        return "Moderate Risk", "#f1c40f"
-    elif pd_val < 0.60:
-        return "High Risk", "#e67e22"
-    else:
-        return "Critical Risk", "#e74c3c"
-
-def gauge(pd_value):
-    risk_label, color = risk_grade(pd_value)
+# ================================================================
+# GAUGE CHART
+# ================================================================
+def draw_gauge(value):
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=pd_value,
-        number={'valueformat': '.2f'},
+        value=value,
+        number={"font": {"size": 48}},
         gauge={
             "axis": {"range": [0, 1]},
-            "bar": {"color": color},
+            "bar": {"color": "orange"},
             "steps": [
-                {"range": [0, 0.02], "color": "#2ecc71"},
-                {"range": [0.02, 0.10], "color": "#7ed957"},
-                {"range": [0.10, 0.30], "color": "#f1c40f"},
-                {"range": [0.30, 0.60], "color": "#e67e22"},
-                {"range": [0.60, 1.00], "color": "#e74c3c"},
-            ]
-        }
+                {"range": [0, 0.2], "color": "#138a36"},
+                {"range": [0.2, 0.5], "color": "#f1c40f"},
+                {"range": [0.5, 1], "color": "#e74c3c"},
+            ],
+        },
     ))
-    fig.update_layout(height=300, margin=dict(l=20, r=20, t=40, b=10))
-    return fig, risk_label, color
+    fig.update_layout(height=350, margin=dict(l=30, r=30, t=30, b=30))
+    return fig
 
-SCENARIOS = {
-    "Base Case": 1.0,
-    "Mild Stress (Economic Slowdown)": 1.2,
-    "Moderate Stress (Credit Tightening)": 1.5,
-    "Severe Stress (Recession)": 2.0,
-    "Extreme Stress (Black Swan Event)": 3.0
+# ================================================================
+# PAGE CONFIG
+# ================================================================
+st.set_page_config(
+    page_title="Credit Risk Dashboard",
+    layout="wide",
+)
+
+st.title("🏦 Corporate Credit Risk Dashboard — PD, LGD, Expected Loss")
+st.write("Human-friendly dashboard for non-technical financial decision makers.")
+
+# ================================================================
+# INPUT SECTION
+# ================================================================
+st.subheader("📌 Borrower Information")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    term = st.number_input("Loan Term (Months)", min_value=1, value=60)
+    employees = st.number_input("Number of Employees", min_value=0, value=10)
+    amount = st.number_input("Loan Amount (USD)", min_value=1.0, value=5000.0)
+    naics_label = st.selectbox("Industry Sector (NAICS)", NAICS_OPTIONS)
+
+with col2:
+    new_business = st.radio("Is Borrower Newly Established?", ["No", "Yes"])
+    low_doc = st.radio("Low Documentation Loan?", ["No", "Yes"])
+    urban = st.radio("Urban Area?", ["No", "Yes"])
+    approval_year = st.selectbox("Loan Approval Year", list(range(1960, 2025)))
+
+# Convert to model inputs (pipeline will handle preprocessing)
+input_data = {
+    "Term": term,
+    "NoEmp": employees,
+    "log_loan_amt": np.log(amount),
+    "new_business": 1 if new_business == "Yes" else 0,
+    "low_doc": 1 if low_doc == "Yes" else 0,
+    "urban_flag": 1 if urban == "Yes" else 0,
+    "NAICS_2": extract_naics_code(naics_label),
+    "ApprovalFY": int(approval_year),
 }
 
-LANG = {
-    "EN": {
-        "title": "Enterprise Credit Risk Early Warning System",
-        "subtitle": "Corporate Credit Risk Dashboard — PD, LGD, Expected Loss",
-        "inputs": "Borrower Information",
-        "predict": "Run Prediction",
-        "stress": "Stress Scenario",
-        "results": "Risk Assessment Results",
-        "shap": "Risk Drivers (Explainability)"
-    }
-}
+# ================================================================
+# RUN PREDICTION
+# ================================================================
+if st.button("Run Prediction"):
+    if pd_model is None:
+        st.error("Models failed to load.")
+    else:
+        df = pd.DataFrame([input_data])
 
-T = LANG["EN"]
+        pd_pred = float(pd_model.predict_proba(df)[0][1])
+        lgd_pred = float(lgd_model.predict(df)[0])
+        el_pred = pd_pred * lgd_pred * amount  # monetary expected loss
 
-st.set_page_config(page_title="Corporate Credit Risk EWS", layout="wide")
+        st.subheader("📊 Risk Level")
 
-st.title(T["title"])
-st.write(T["subtitle"])
+        gauge = draw_gauge(pd_pred)
+        st.plotly_chart(gauge, use_container_width=True)
 
-left, right = st.columns([1, 1])
+        st.subheader("📈 Risk Assessment Results")
 
-with left:
-    Term = st.number_input("Loan Term (Months)", min_value=1, value=60)
-    NoEmp = st.number_input("Number of Employees", min_value=0, value=10)
-    loan_amt = st.number_input("Loan Amount (USD)", min_value=0.0, value=10000.0)
-    log_loan_amt = float(np.log1p(loan_amt))
+        colA, colB = st.columns(2)
 
-with right:
-    new_business = st.selectbox("Is Borrower Newly Established?", ["No", "Yes"])
-    low_doc = st.selectbox("Low Documentation Loan?", ["No", "Yes"])
-    urban_flag = st.selectbox("Urban Area?", ["No", "Yes"])
+        with colA:
+            st.write(f"**Probability of Default (PD):** {pd_pred:.2%}")
+            st.write(f"**Loss Given Default (LGD):** {lgd_pred:.2f}")
+            st.write(f"**Expected Loss (EL):** **${el_pred:,.2f}**")
 
-new_business = 1 if new_business == "Yes" else 0
-low_doc = 1 if low_doc == "Yes" else 0
-urban_flag = 1 if urban_flag == "Yes" else 0
+        # Stress Scenarios
+        with colB:
+            st.write("### 🔥 Stress Scenarios")
 
-naics_display = [f"{k} — {v}" for k, v in NAICS_LABELS.items() if k in OHE_CATEGORIES["NAICS_2"]]
-sel_naics = st.selectbox("Industry Sector (NAICS)", naics_display)
-NAICS_2 = sel_naics.split(" — ")[0]
+            for sev in ["Mild", "Moderate", "Severe"]:
+                stressed_pd = apply_stress(pd_pred, sev)
+                stressed_el = stressed_pd * lgd_pred * amount
 
-ApprovalFY = st.selectbox("Loan Approval Year", OHE_CATEGORIES["ApprovalFY"])
+                st.write(f"**{sev} Stress PD:** {stressed_pd:.2%}")
+                st.write(f"Expected Loss under {sev}: **${stressed_el:,.2f}**")
 
-scenario_choice = st.sidebar.selectbox(T["stress"], list(SCENARIOS.keys()))
-stress_mult = SCENARIOS[scenario_choice]
+        # SHAP Explainability
+        st.subheader("🔍 SHAP Explainability (PD Model)")
 
-if st.button(T["predict"]):
-    X = preprocess_single({
-        "Term": Term,
-        "NoEmp": NoEmp,
-        "log_loan_amt": log_loan_amt,
-        "new_business": new_business,
-        "low_doc": low_doc,
-        "urban_flag": urban_flag,
-        "NAICS_2": NAICS_2,
-        "ApprovalFY": ApprovalFY
-    })
+        try:
+            X_processed = pd_model[:-1].transform(df).toarray()
+            shap_vals = shap_explainer.shap_values(X_processed)
 
-    pd_val = float(pd_model.predict_proba(X)[0][1])
-    lgd_val = float(np.clip(lgd_model.predict(X)[0], 0, 1))
-    el_val = pd_val * lgd_val * loan_amt
+            st.write("### Summary Plot")
+            st.pyplot(shap.summary_plot(shap_vals, X_processed, show=False))
 
-    stressed_pd = float(np.clip(pd_val * stress_mult, 0, 1))
-    stressed_el = stressed_pd * lgd_val * loan_amt
+            st.write("### Top Features")
+            mean_abs = np.abs(shap_vals).mean(axis=0)
+            idx = np.argsort(mean_abs)[::-1][:10]
+            st.write(pd.DataFrame({
+                "Feature": idx,
+                "Impact": mean_abs[idx]
+            }))
+        except:
+            st.info("SHAP could not be generated for this input.")
 
-    rcol1, rcol2 = st.columns([1, 2])
-
-    with rcol1:
-        fig, rating, color = gauge(pd_val)
-        st.subheader("Risk Level")
-        st.plotly_chart(fig, use_container_width=True)
-        st.markdown(f"<h4 style='color:{color};'>{rating}</h4>", unsafe_allow_html=True)
-
-    with rcol2:
-        st.subheader(T["results"])
-        st.write(f"**Probability of Default (PD):** {pd_val:.2%}")
-        st.write(f"**Loss Given Default (LGD):** {lgd_val:.2f}")
-        st.write(f"**Expected Loss (EL):** ${el_val:,.2f}")
-        st.markdown("---")
-        st.write(f"**Stress Scenario:** {scenario_choice}")
-        st.write(f"**Stressed PD:** {stressed_pd:.2%}")
-        st.write(f"**Stressed Expected Loss:** ${stressed_el:,.2f}")
-
-    st.subheader(T["shap"])
-    shap_vals = shap_explainer.shap_values(X)
-    st.pyplot(shap.summary_plot(shap_vals, X))
