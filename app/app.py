@@ -2,232 +2,223 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import os
-import sklearn
-import xgboost
+import shap
+import json
+import plotly.graph_objects as go
+import plotly.express as px
 
-# ======================================================================================
-# 0. DIRECTORIES
-# ======================================================================================
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# =====================================
+# 1. PAGE CONFIG & STYLE
+# =====================================
+st.set_page_config(page_title="Enterprise Credit Risk EWS", layout="wide", page_icon="💼")
 
-# ======================================================================================
-# 1. PAGE SETUP
-# ======================================================================================
-st.set_page_config(
-    page_title="Enterprise Credit Risk EWS",
-    page_icon="🛡️",
-    layout="wide"
-)
+FINTECH_BLUE = "#0A2647"
+LIGHT_BLUE = "#144272"
+ACCENT_BLUE = "#205295"
+BG_GRAY = "#f5f6fa"
 
-# ======================================================================================
-# 2. LANGUAGE DICTIONARY
-# ======================================================================================
+st.markdown(f"""
+    <style>
+        .main {{ background-color: {BG_GRAY}; }}
+        .title-text {{ color: {FINTECH_BLUE}; font-size: 36px; font-weight: 700; }}
+        .sub-text {{ color: {ACCENT_BLUE}; font-size: 18px; }}
+    </style>
+""", unsafe_allow_html=True)
+
+# =====================================
+# 2. MULTILINGUAL DICTIONARY
+# =====================================
 LANG = {
+    "EN": {
+        "title": "Enterprise Credit Risk Early Warning System",
+        "subtitle": "Predict PD, LGD, Expected Loss, with SHAP Explainability & Stress Test",
+        "input_header": "Borrower Information",
+        "industry": "Industry Sector",
+        "loan_amt": "Loan Amount (USD)",
+        "employees": "Number of Employees",
+        "new_business": "New Business?",
+        "yes": "Yes",
+        "no": "No",
+        "predict": "Run Credit Risk Analysis",
+        "stress_label": "Market Stress (VIX Index)",
+        "pd_base": "Baseline PD",
+        "pd_stress": "Stressed PD",
+        "lgd": "Loss Given Default",
+        "el": "Expected Loss",
+        "explain": "SHAP Local Explanation",
+    },
     "ID": {
         "title": "Sistem Peringatan Dini Risiko Kredit",
-        "subtitle": "Analisis PD & LGD • Stress Testing · Pipeline AI",
-        "upload_header": "Unggah Data Portofolio",
-        "upload_label": "Unggah CSV atau Excel",
-        "sidebar_model": "Status Model",
-        "model_missing": "❌ Model tidak ditemukan. Pastikan file .pkl tersedia.",
-        "success_load": "✅ Model berhasil dimuat!",
-        "run_analysis": "🚀 Jalankan Analisis AI",
-        "demo_data": "Buat Data Demo",
-        "tab1": "📊 Laporan Portofolio",
-        "tab2": "⚡ Stress Testing & Inspektor",
-        "col_pd": "Probabilitas Gagal Bayar (PD)",
-        "col_lgd": "Loss Given Default (LGD)",
-        "col_el": "Expected Loss (EL)",
-        "stress_vix": "Skenario Krisis (VIX Index)",
-        "stress_desc": "Geser slider untuk mensimulasikan volatilitas pasar.",
-        "diagnostic": "🩺 Mode Diagnostik"
+        "subtitle": "Prediksi PD, LGD, Expected Loss, dengan SHAP & Stress Test",
+        "input_header": "Informasi Debitur",
+        "industry": "Sektor Industri",
+        "loan_amt": "Jumlah Pinjaman (USD)",
+        "employees": "Jumlah Karyawan",
+        "new_business": "Bisnis Baru?",
+        "yes": "Ya",
+        "no": "Tidak",
+        "predict": "Jalankan Analisis Risiko Kredit",
+        "stress_label": "Stress Pasar (VIX Index)",
+        "pd_base": "PD Normal",
+        "pd_stress": "PD Stres",
+        "lgd": "Loss Given Default",
+        "el": "Expected Loss",
+        "explain": "Penjelasan SHAP",
     },
-    "EN": {
-        "title": "Enterprise Credit Risk EWS",
-        "subtitle": "PD & LGD Analysis • Stress Testing · AI Pipeline",
-        "upload_header": "Upload Portfolio Data",
-        "upload_label": "Upload CSV or Excel",
-        "sidebar_model": "Model Status",
-        "model_missing": "❌ Model not found. Ensure .pkl files exist.",
-        "success_load": "✅ Models loaded successfully!",
-        "run_analysis": "🚀 Run AI Analysis",
-        "demo_data": "Generate Demo Data",
-        "tab1": "📊 Portfolio Report",
-        "tab2": "⚡ Stress Testing & Inspector",
-        "col_pd": "Probability of Default (PD)",
-        "col_lgd": "Loss Given Default (LGD)",
-        "col_el": "Expected Loss (EL)",
-        "stress_vix": "Crisis Scenario (VIX Index)",
-        "stress_desc": "Slide to simulate market volatility.",
-        "diagnostic": "🩺 Diagnostic Mode"
+    "KR": {
+        "title": "기업 신용위험 조기경보 시스템",
+        "subtitle": "PD, LGD, Expected Loss 예측 및 SHAP 설명 · 스트레스 테스트 제공",
+        "input_header": "차입자 정보",
+        "industry": "산업 분야",
+        "loan_amt": "대출 금액 (USD)",
+        "employees": "직원 수",
+        "new_business": "신규 사업 여부",
+        "yes": "예",
+        "no": "아니요",
+        "predict": "신용위험 분석 실행",
+        "stress_label": "시장 스트레스 (VIX 지수)",
+        "pd_base": "기본 PD",
+        "pd_stress": "스트레스 PD",
+        "lgd": "LGD",
+        "el": "기대손실",
+        "explain": "SHAP 설명",
     }
 }
 
-# ======================================================================================
-# 3. SIDEBAR LANGUAGE SELECTOR
-# ======================================================================================
-with st.sidebar:
-    st.header("🌐 Language")
-    lang = st.selectbox("Select Language", ["ID", "EN"])
-txt = LANG[lang]
-
-# ======================================================================================
-# 4. MODEL LOADER (SMART & ROBUST)
-# ======================================================================================
-MODEL_FILES = {
-    "pd": "pd_model_pipeline.pkl",
-    "lgd": "lgd_model_pipeline.pkl"
+# =====================================
+# 3. INDUSTRY → NAICS MAPPING
+# =====================================
+INDUSTRY_TO_NAICS = {
+    "Manufacturing": "31",
+    "Retail": "44",
+    "Services": "54",
+    "Finance": "52",
+    "Technology": "51",
+    "Healthcare": "62",
+    "Real Estate": "53",
+    "Construction": "23",
+    "Transportation": "48",
+    "Agriculture": "11",
 }
 
-@st.cache_resource
-def load_pipeline_model(filename):
-    """Loads a model safely with full-path handling & error catching."""
-    path = os.path.join(APP_DIR, filename)
+# =====================================
+# 4. LOAD MODELS & EXPLAINER
+# =====================================
+try:
+    PD_PIPE = joblib.load("PD_model_pipeline.pkl")
+    LGD_PIPE = joblib.load("LGD_model_pipeline.pkl")
+    SHAP_EXPLAINER = joblib.load("pd_shap_explainer.pkl")
+    MODEL_READY = True
+except Exception as e:
+    MODEL_READY = False
+    st.error(f"Model Loading Error: {e}")
 
-    if not os.path.exists(path):
-        return None, f"❌ File '{filename}' tidak ditemukan di {path}"
-
-    try:
-        model = joblib.load(path)
-        return model, None
-    except Exception as e:
-        return None, f"❌ Gagal load model {filename}: {e}"
-
-pd_model, pd_err = load_pipeline_model(MODEL_FILES["pd"])
-lgd_model, lgd_err = load_pipeline_model(MODEL_FILES["lgd"])
-
-# ======================================================================================
-# 5. SIDEBAR MODEL STATUS + DEPENDENCY CHECK
-# ======================================================================================
-with st.sidebar:
-    st.subheader(txt["sidebar_model"])
-
-    if pd_model is None or lgd_model is None:
-        st.error(txt["model_missing"])
-        if pd_err: st.write(pd_err)
-        if lgd_err: st.write(lgd_err)
+# =====================================
+# 5. STRESS TEST FUNCTION
+# =====================================
+def apply_stress(pd_base, vix):
+    baseline = 20
+    if vix <= baseline:
+        mult = 1.0
     else:
-        st.success(txt["success_load"])
+        mult = 1.0 + ((vix - baseline) / 100) * 1.5
+    return min(pd_base * mult, 1.0), mult
 
-    # Dependency check
-    st.markdown("### 🔍 Dependency Check")
-    st.write(f"• scikit-learn runtime: **{sklearn.__version__}**")
-    st.write(f"• xgboost runtime: **{xgboost.__version__}**")
+# =====================================
+# 6. UI LANGUAGE SELECTION
+# =====================================
+st.sidebar.header("🌐 Language / Bahasa / 언어")
+lang_choice = st.sidebar.selectbox("Select Language", ["EN", "ID", "KR"])
+TXT = LANG[lang_choice]
 
-    if sklearn.__version__ != "1.6.1":
-        st.warning("⚠️ scikit-learn mismatch! Trained on 1.6.1")
-    if xgboost.__version__ != "3.1.2":
-        st.warning("⚠️ xgboost mismatch! Trained on 3.1.2")
+# =====================================
+# 7. MAIN TITLE
+# =====================================
+st.markdown(f"<div class='title-text'>{TXT['title']}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='sub-text'>{TXT['subtitle']}</div>", unsafe_allow_html=True)
 
-# ======================================================================================
-# 6. DIAGNOSTIC MODE
-# ======================================================================================
-with st.expander(txt["diagnostic"]):
-    st.write("### Model Pipeline Parameters")
-    if pd_model:
-        st.json(pd_model.get_params(deep=False))
-    if lgd_model:
-        st.json(lgd_model.get_params(deep=False))
+# =====================================
+# 8. INPUT FORM (NON-TECH FRIENDLY)
+# =====================================
+st.write("---")
+st.subheader(TXT["input_header"])
 
-    st.write("### Environment Info")
-    st.write({
-        "Python": os.sys.version,
-        "sklearn version": sklearn.__version__,
-        "xgboost version": xgboost.__version__,
-        "APP_DIR": APP_DIR,
-        "Files in APP_DIR": os.listdir(APP_DIR)
-    })
+col1, col2 = st.columns(2)
 
-# ======================================================================================
-# 7. DEMO DATA GENERATOR
-# ======================================================================================
-def generate_demo():
-    return pd.DataFrame({
-        "Name": ["A", "B", "C", "D"],
-        "NAICS": ["541512", "331110", "448130", "722511"],
-        "ApprovalFY": [2010, 2015, 2018, 2020],
-        "Term": [36, 60, 48, 72],
-        "NoEmp": [12, 50, 7, 30],
-        "NewExist": [1, 2, 1, 1],
-        "UrbanRural": [1, 2, 1, 1],
-        "LowDoc": ["N", "Y", "N", "N"],
-        "DisbursementGross": [150e6, 450e6, 220e6, 300e6]
-    })
+industry = col1.selectbox(TXT["industry"], list(INDUSTRY_TO_NAICS.keys()))
+loan_amt = col1.number_input(TXT["loan_amt"], min_value=1000.0, value=50000.0)
+employees = col2.number_input(TXT["employees"], min_value=1, value=20)
+new_business = col2.selectbox(TXT["new_business"], [TXT["yes"], TXT["no"]])
 
-# ======================================================================================
-# 8. MAIN UI
-# ======================================================================================
-st.title(txt["title"])
-st.markdown(f"**{txt['subtitle']}**")
-st.header("1. " + txt["upload_header"])
+newbiz_flag = 1 if new_business == TXT["yes"] else 0
+naics_val = INDUSTRY_TO_NAICS[industry]
 
-uploaded = st.file_uploader(txt["upload_label"], type=["csv", "xlsx"])
+input_df = pd.DataFrame({
+    "NAICS": [naics_val],
+    "DisbursementGross": [loan_amt],
+    "NoEmp": [employees],
+    "new_business": [newbiz_flag],
+    "low_doc": [0],
+    "urban_flag": [1],
+    "log_loan_amt": [np.log1p(loan_amt)],
+    "Term": [12],
+})
 
-if uploaded:
-    try:
-        df_raw = (
-            pd.read_csv(uploaded)
-            if uploaded.name.endswith(".csv")
-            else pd.read_excel(uploaded)
-        )
-        st.session_state["df"] = df_raw
-    except Exception as e:
-        st.error(f"❌ Error membaca file: {e}")
-else:
-    if st.button(txt["demo_data"]):
-        st.session_state["df"] = generate_demo()
+# =====================================
+# 9. RUN ANALYSIS BUTTON
+# =====================================
+run_btn = st.button(TXT["predict"])
 
-# ======================================================================================
-# 9. RUN ANALYSIS
-# ======================================================================================
-if "df" in st.session_state and pd_model is not None:
-    df = st.session_state["df"]
-    st.subheader("Preview")
-    st.dataframe(df.head())
+if run_btn:
 
-    if st.button(txt["run_analysis"]):
-        try:
-            pd_pred = pd_model.predict_proba(df)[:, 1]
-            lgd_pred = np.clip(lgd_model.predict(df), 0, 1)
+    if not MODEL_READY:
+        st.error("Model not loaded.")
+        st.stop()
 
-            df_res = df.copy()
-            df_res[txt["col_pd"]] = pd_pred
-            df_res[txt["col_lgd"]] = lgd_pred
-            df_res[txt["col_el"]] = pd_pred * lgd_pred * df["DisbursementGross"]
+    # ---------- PREDICT PD ----------
+    pd_val = PD_PIPE.predict_proba(input_df)[0][1]
 
-            st.session_state["res"] = df_res
-            st.success("🎉 Analisis selesai!")
-        except Exception as e:
-            st.error(f"❌ Error saat prediksi: {e}")
-            st.info("Periksa apakah kolom input cocok dengan pipeline training.")
+    # ---------- PREDICT LGD ----------
+    lgd_val = LGD_PIPE.predict(input_df)[0]
 
-# ======================================================================================
-# 10. RESULT VIEW
-# ======================================================================================
-if "res" in st.session_state:
-    res = st.session_state["res"]
-    tab1, tab2 = st.tabs([txt["tab1"], txt["tab2"]])
+    # ---------- EXPECTED LOSS ----------
+    el_base = pd_val * lgd_val * loan_amt
 
-    with tab1:
-        st.subheader("Stress Testing")
-        vix = st.slider(txt["stress_vix"], 10, 80, 20)
+    st.success("Prediction completed.")
 
-        stressed_pd = np.minimum(res[txt["col_pd"]] * (1 + (vix - 20) / 100 * 1.5), 1)
-        stressed_el = stressed_pd * res[txt["col_lgd"]] * res["DisbursementGross"]
+    # Display Metrics
+    m1, m2, m3 = st.columns(3)
+    m1.metric(TXT["pd_base"], f"{pd_val:.2%}")
+    m2.metric(TXT["lgd"], f"{lgd_val:.2%}")
+    m3.metric(TXT["el"], f"${el_base:,.0f}")
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Baseline EL", f"{res[txt['col_el']].sum():,.0f}")
-        col2.metric("Stressed EL", f"{stressed_el.sum():,.0f}")
-        col3.metric("Impact", f"{stressed_el.sum() - res[txt['col_el']].sum():,.0f}")
+    # ---------- STRESS TEST SECTION ----------
+    st.write("---")
+    st.subheader(TXT["stress_label"])
 
-        st.dataframe(res)
+    vix_level = st.slider("VIX", 10, 80, 20)
 
-    with tab2:
-        st.subheader("Debtor Inspector")
-        name = st.selectbox("Select Debtor", res["Name"].unique())
-        d = res[res["Name"] == name].iloc[0]
+    pd_stress, mult = apply_stress(pd_val, vix_level)
+    el_stress = pd_stress * lgd_val * loan_amt
 
-        colA, colB = st.columns(2)
-        colA.metric("PD", f"{d[txt['col_pd']]:.2%}")
-        colB.metric("LGD", f"{d[txt['col_lgd']]:.2%}")
+    s1, s2 = st.columns(2)
+    s1.metric(TXT["pd_stress"], f"{pd_stress:.2%}")
+    s2.metric(TXT["el"], f"${el_stress:,.0f}")
+
+    st.info(f"Multiplier: {mult:.2f}x | Difference: {el_stress - el_base:,.0f}")
+
+    # ---------- SHAP EXPLANATION ----------
+    st.write("---")
+    st.subheader(TXT["explain"])
+
+    transformed_X = PD_PIPE.named_steps["preprocess"].transform(input_df)
+    shap_vals = SHAP_EXPLAINER.shap_values(transformed_X)[0]
+    feature_names = PD_PIPE.named_steps["preprocess"].get_feature_names_out()
+
+    shap_df = pd.DataFrame({
+        "feature": feature_names,
+        "importance": shap_vals
+    }).sort_values(by="importance", key=abs, ascending=False).head(10)
+
+    fig = px.bar(shap_df, x="importance", y="feature", orientation="h", title="Top SHAP Factors")
+    st.plotly_chart(fig, use_container_width=True)
