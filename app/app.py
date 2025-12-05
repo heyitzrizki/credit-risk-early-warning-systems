@@ -4,33 +4,35 @@ import json
 import numpy as np
 import pandas as pd
 import shap
+import os
 
-# =========================================================
-# PATH ARTIFACT (Root = folder app/ di Streamlit Cloud)
-# =========================================================
-MODEL_PD_PATH = "PD_model.pkl"
-MODEL_LGD_PATH = "LGD_model.pkl"
-SHAP_PATH = "pd_shap_explainer.pkl"
-PREPROCESSOR_JSON = "preprocessor_meta.json"
+# ====================================================================================
+# FIX PATH — ensure Streamlit loads files relative to folder containing app.py
+# ====================================================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# =========================================================
+def p(path):
+    return os.path.join(BASE_DIR, path)
+
+# ====================================================================================
 # LOAD ARTIFACTS
-# =========================================================
+# ====================================================================================
+
 @st.cache_resource
 def load_models():
     try:
-        pd_model = joblib.load(MODEL_PD_PATH)
-        lgd_model = joblib.load(MODEL_LGD_PATH)
-        shap_explainer = joblib.load(SHAP_PATH)
+        pd_model = joblib.load(p("PD_model.pkl"))
+        lgd_model = joblib.load(p("LGD_model.pkl"))
+        shap_explainer = joblib.load(p("pd_shap_explainer.pkl"))
         return pd_model, lgd_model, shap_explainer
     except Exception as e:
         st.error(f"Model Loading Error: {e}")
         return None, None, None
 
 @st.cache_resource
-def load_preprocessor():
+def load_preprocessor_meta():
     try:
-        with open(PREPROCESSOR_JSON, "r") as f:
+        with open(p("preprocessor_meta.json"), "r") as f:
             return json.load(f)
     except Exception as e:
         st.error(f"Preprocessor Metadata Error: {e}")
