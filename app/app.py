@@ -16,8 +16,8 @@ def p(path): return os.path.join(BASE_DIR, path)
 @st.cache_resource
 def load_models():
     try:
-        pd_model = joblib.load(p("PD_LGBM_pipeline.pkl"))     # UPDATED
-        lgd_model = joblib.load(p("LGD_LGBM_pipeline.pkl"))   # UPDATED
+        pd_model = joblib.load(p("PD_XGB_pipeline.pkl"))     # UPDATED
+        lgd_model = joblib.load(p("LGD_XGB_pipeline.pkl"))   # UPDATED
         shap_explainer = joblib.load(p("pd_shap_explainer.pkl"))
         return pd_model, lgd_model, shap_explainer
     except Exception as e:
